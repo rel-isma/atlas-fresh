@@ -26,16 +26,36 @@ class ProviderResult:
 
 
 class AssistantProvider(Protocol):
-    def answer(self, question_key: str, context: dict, plan: PlanResult) -> ProviderResult: ...
+    def answer(
+        self,
+        *,
+        question_key: str | None,
+        question_text: str | None,
+        context: dict,
+        plan: PlanResult,
+    ) -> ProviderResult: ...
 
 
 class FallbackProvider:
     """Always available. Builds a plain-language answer directly from
     the structured context passed in — no network call, no API key,
     no external dependency. This is what runs when no real provider is
-    configured, or when a real provider fails or times out."""
+    configured, or when a real provider fails or times out.
 
-    def answer(self, question_key: str, context: dict, plan: PlanResult) -> ProviderResult:
+    FallbackProvider only understands the three narrow, pre-built
+    contexts from context.build_context() — it has no way to reason
+    over free text, so question_key must be one of the three supported
+    keys. question_text is accepted (for interface compatibility with
+    a real LLM provider) but ignored."""
+
+    def answer(
+        self,
+        *,
+        question_key: str | None,
+        question_text: str | None = None,
+        context: dict,
+        plan: PlanResult,
+    ) -> ProviderResult:
         if question_key == "at_risk_clients":
             return self._at_risk_clients(context)
         if question_key == "farm_gaps":
@@ -123,11 +143,100 @@ class FallbackProvider:
         return ProviderResult(answer=answer, cited_ids=farm_ids, source="fallback")
 
 
-def get_default_provider() -> FallbackProvider:
-    """Factory for the always-available fallback provider. A real
-    provider (reading configuration such as an API key from the
-    environment) can be wired in here later without changing any
-    caller — routes call this factory, never construct a specific
-    provider class directly. No such provider is configured in this
-    phase; only the fallback exists."""
+def get_default_provider() -> "AssistantProvider":
+    """Factory for the assistant provider. Reads ANTHROPIC_API_KEY from
+    the environment: if it's set and the `anthropic` package is
+    installed, returns a real LLMProvider; otherwise (no key, package
+    missing, or construction fails for any reason) falls back to the
+    always-available FallbackProvider. Callers never construct a
+    specific provider class directly — this is the only place that
+    decision is made."""
+    import os
+
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            return LLMProvider()
+        except Exception:
+            # No installed SDK, bad key format, etc. — fail open to
+            # the deterministic fallback rather than breaking the
+            # assistant endpoint entirely.
+            return FallbackProvider()
     return FallbackProvider()
+
+
+class LLMProvider:
+    """Real LLM-backed provider. Only constructed when ANTHROPIC_API_KEY
+    is set (see get_default_provider). Imports the `anthropic` package
+    lazily, inside __init__ — so importing this module, and every
+    other provider/context/guard module, never requires that package
+    to be installed. If it isn't installed, __init__ raises and the
+    factory falls back to FallbackProvider.
+
+    Grounding is enforced in two layers:
+      1. The system prompt instructs the model to answer ONLY from the
+         provided context, to cite real IDs exactly as given, and to
+         say the question is unanswerable if the context doesn't cover
+         it.
+      2. Regardless of what the model claims, guard.py independently
+         re-checks every cited ID against the real PlanResult after
+         this provider returns — this class is trusted for wording,
+         never trusted for correctness of citations.
+    """
+
+    def __init__(self) -> None:
+        import os
+
+        import anthropic  # raises ImportError here if not installed
+
+        self._client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        self._model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+
+    def answer(
+        self,
+        *,
+        question_key: str | None,
+        question_text: str | None,
+        context: dict,
+        plan: PlanResult,
+    ) -> ProviderResult:
+        import json
+
+        question = question_text or (question_key or "").replace("_", " ")
+        system_prompt = (
+            "You are explaining a computed apple-export plan to a Production/Commercial "
+            "manager. You do NOT calculate anything — a deterministic engine already did. "
+            "Answer ONLY using the JSON context provided below; never invent a number, "
+            "farm ID, or client ID that is not present in it. When you refer to a farm or "
+            "client, use its exact ID as written in the context (e.g. 'C02', 'F15'). "
+            "If the context does not contain enough information to answer, say so plainly "
+            "instead of guessing. Keep the answer to a few sentences."
+        )
+        user_message = f"Context (JSON):\n{json.dumps(context)}\n\nQuestion: {question}"
+
+        response = self._client.messages.create(
+            model=self._model,
+            max_tokens=400,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        answer_text = "".join(block.text for block in response.content if block.type == "text")
+
+        # Extract cited IDs by simple pattern match (C## / F##) rather
+        # than trusting the model to also return a structured list —
+        # guard.py will independently validate every ID found this way
+        # against the real PlanResult before anything is shown.
+        cited_ids = self._extract_ids(answer_text)
+
+        return ProviderResult(answer=answer_text, cited_ids=cited_ids, source="llm")
+
+    @staticmethod
+    def _extract_ids(text: str) -> list[str]:
+        import re
+
+        found = re.findall(r"\b[CF]\d{2}\b", text)
+        # De-duplicate while preserving first-seen order.
+        seen: list[str] = []
+        for fid in found:
+            if fid not in seen:
+                seen.append(fid)
+        return seen

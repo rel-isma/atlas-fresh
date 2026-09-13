@@ -39,7 +39,7 @@ class TestAssistantAtRiskClients(unittest.TestCase):
         plan = _baseline_plan()
         context = ctx.build_context(plan, "at_risk_clients")
         provider = FallbackProvider()
-        result = provider.answer("at_risk_clients", context, plan)
+        result = provider.answer(question_key="at_risk_clients", question_text=None, context=context, plan=plan)
 
         grounded_ids = ensure_grounded(result.cited_ids, plan)
         self.assertEqual(set(grounded_ids), {"C02", "C09", "C08"})
@@ -53,7 +53,7 @@ class TestAssistantFarmGaps(unittest.TestCase):
         plan = _baseline_plan()
         context = ctx.build_context(plan, "farm_gaps")
         provider = FallbackProvider()
-        result = provider.answer("farm_gaps", context, plan)
+        result = provider.answer(question_key="farm_gaps", question_text=None, context=context, plan=plan)
 
         grounded_ids = ensure_grounded(result.cited_ids, plan)
         self.assertEqual(set(grounded_ids), {"F15", "F16", "F19", "F20"})
@@ -64,7 +64,7 @@ class TestAssistantLocalResidual(unittest.TestCase):
         plan = _baseline_plan()
         context = ctx.build_context(plan, "local_residual")
         provider = FallbackProvider()
-        result = provider.answer("local_residual", context, plan)
+        result = provider.answer(question_key="local_residual", question_text=None, context=context, plan=plan)
 
         self.assertIn("60", result.answer)
         self.assertIn("4,500", result.answer)
@@ -108,6 +108,44 @@ class TestAssistantUnsupportedQuestion(unittest.TestCase):
     def test_free_text_unsupported_topic_returns_none(self):
         self.assertIsNone(ctx.resolve_question_key("What's the weather forecast for tomorrow?"))
         self.assertIsNone(ctx.resolve_question_key("Can you book a truck for delivery?"))
+
+
+class TestAssistantRelevanceGateAndFullContext(unittest.TestCase):
+    """Covers the two additions for a real-LLM path: the loose
+    relevance gate (used to decide whether to spend an LLM call at
+    all on free text the narrow router didn't match) and the full
+    PlanResult serializer it would use if it does."""
+
+    def test_relevance_gate_accepts_domain_questions_in_different_phrasing(self):
+        # None of these match _FREE_TEXT_KEYWORDS's exact router, but
+        # all are genuinely about the domain.
+        self.assertTrue(ctx.is_plausibly_relevant("What's driving today's export revenue?"))
+        self.assertTrue(ctx.is_plausibly_relevant("How much did station capacity limit us by?"))
+        self.assertTrue(ctx.is_plausibly_relevant("Tell me about quality upgrades in today's allocation"))
+
+    def test_relevance_gate_rejects_obviously_unrelated_questions(self):
+        self.assertFalse(ctx.is_plausibly_relevant("What's the weather like tomorrow?"))
+        self.assertFalse(ctx.is_plausibly_relevant("Can you book a delivery truck?"))
+        self.assertFalse(ctx.is_plausibly_relevant("Write me a poem about the ocean"))
+
+    def test_full_context_includes_every_plan_section(self):
+        plan = _baseline_plan()
+        full = ctx.build_full_context(plan)
+
+        self.assertIn("kpis", full)
+        self.assertIn("segment_variances", full)
+        self.assertIn("farm_segment_balances", full)
+        self.assertIn("client_results", full)
+        self.assertIn("allocations", full)
+        self.assertIn("local_residual", full)
+
+        # Spot-check it actually carries the real baseline values, not
+        # placeholders.
+        self.assertEqual(full["kpis"]["export_t"], 500)
+        self.assertEqual(full["kpis"]["local_volume_t"], 60)
+        client_ids = {c["client_id"] for c in full["client_results"]}
+        self.assertEqual(len(client_ids), 10)
+        self.assertIn("C02", client_ids)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from ..core.assistant import context as ctx
 from ..core.assistant.guard import UngroundedAnswerError, ensure_grounded
-from ..core.assistant.provider import get_default_provider
+from ..core.assistant.provider import FallbackProvider, get_default_provider
 from ..core.engine import allocate
 from ..core.loader import load_workbook
 from ..core.validation import to_domain, validate
@@ -70,15 +70,34 @@ def ask_assistant(request: AssistantRequest):
         return _json(unavailable)
 
     # Resolve which of the three supported questions is being asked.
-    question_key: str | None
+    # 1) An exact structured key ("question": "at_risk_clients", ...).
+    # 2) Free text that happens to match the narrow keyword router —
+    #    handled the same way as (1): narrow context, works with or
+    #    without a real LLM configured.
+    # 3) Free text that does NOT match the narrow router, but plausibly
+    #    belongs to this domain, AND a real LLM provider is configured
+    #    — only in this case do we widen to the full PlanResult and let
+    #    the model reason over the raw question. FallbackProvider has
+    #    no reasoning to offer here, so this path is skipped entirely
+    #    when only the fallback is available (no point building a full
+    #    context nothing will use).
+    provider = get_default_provider()
+    question_key: str | None = None
+    built_context: dict | None = None
+    question_text: str | None = None
+
     if request.question in ctx.SUPPORTED_QUESTIONS:
         question_key = request.question
+        built_context = ctx.build_context(plan, question_key)
     elif request.free_text:
         question_key = ctx.resolve_question_key(request.free_text)
-    else:
-        question_key = None
+        if question_key is not None:
+            built_context = ctx.build_context(plan, question_key)
+        elif not isinstance(provider, FallbackProvider) and ctx.is_plausibly_relevant(request.free_text):
+            question_text = request.free_text
+            built_context = ctx.build_full_context(plan)
 
-    if question_key is None:
+    if built_context is None:
         return _json(
             AssistantUnavailableResponse(
                 reason="not_supported_by_current_plan",
@@ -86,13 +105,13 @@ def ask_assistant(request: AssistantRequest):
             )
         )
 
-    # Build minimal structured context and ask the provider (fallback
-    # only in this phase — see provider.get_default_provider).
-    built_context = ctx.build_context(plan, question_key)
-    provider = get_default_provider()
-
     try:
-        result = provider.answer(question_key, built_context, plan)
+        result = provider.answer(
+            question_key=question_key,
+            question_text=question_text,
+            context=built_context,
+            plan=plan,
+        )
     except Exception:
         # Honest, labeled failure — never a fabricated answer.
         logger.exception("Assistant provider failed")
