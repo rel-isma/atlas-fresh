@@ -7,6 +7,15 @@ thin route handlers.
 """
 from __future__ import annotations
 
+from dotenv import load_dotenv
+
+# Load backend/.env (if present) before anything reads os.environ —
+# in particular provider.get_default_provider(), which checks for
+# ANTHROPIC_API_KEY. Safe to call even if no .env file exists; it's a
+# no-op in that case. Real secrets live only in .env (gitignored),
+# never in source.
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
