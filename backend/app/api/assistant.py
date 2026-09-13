@@ -86,7 +86,9 @@ def ask_assistant(request: AssistantRequest):
     built_context: dict | None = None
     question_text: str | None = None
 
-    if request.question in ctx.SUPPORTED_QUESTIONS:
+    if request.question is not None:
+        # Pydantic's Literal type already guarantees this is one of
+        # the 3 valid chip values — no fallthrough case to handle.
         question_key = request.question
         built_context = ctx.build_context(plan, question_key)
     elif request.free_text:

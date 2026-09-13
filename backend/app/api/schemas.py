@@ -13,7 +13,9 @@ so every mapping is visible and reviewable in one place.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from ..core.loader import LoaderIssue
 from ..core.models import (
@@ -234,8 +236,27 @@ class PlanResultSchema(CamelModel):
 
 
 class AssistantRequest(CamelModel):
-    question: str | None = None
+    """Exactly one of `question` / `freeText` must be provided.
+
+    `question` is restricted to the 3 known chip values — this is a
+    programmatic selector the UI sends when the user taps a suggested
+    question, never something a person types. Anything else in this
+    field is rejected by Pydantic itself (422) before the route even
+    runs, rather than silently falling through to "unsupported".
+
+    `freeText` is the only field a human-typed question belongs in.
+    """
+
+    question: Literal["at_risk_clients", "farm_gaps", "local_residual"] | None = None
     free_text: str | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_field(self) -> "AssistantRequest":
+        if bool(self.question) == bool(self.free_text):
+            raise ValueError(
+                "Provide exactly one of 'question' (a fixed chip value) or 'freeText' (a typed question) — not both, not neither."
+            )
+        return self
 
 
 class AssistantAvailableResponse(CamelModel):

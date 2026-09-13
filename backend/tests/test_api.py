@@ -127,3 +127,27 @@ def test_assistant_unsupported_question_is_honest():
     assert body["reason"] == "not_supported_by_current_plan"
     # Must not fabricate an answer under the "unavailable" shape.
     assert "citedIds" not in body or body.get("citedIds") in (None, [])
+
+
+def test_assistant_rejects_arbitrary_text_in_question_field():
+    """`question` is a programmatic chip selector (Literal-typed), not
+    a place for typed text — arbitrary strings there must be rejected
+    at the request-validation boundary (422), not silently fall through
+    to "unsupported"."""
+    response = client.post("/api/assistant", json={"question": "what is the risk"})
+    assert response.status_code == 422
+
+
+def test_assistant_rejects_both_question_and_free_text():
+    """Sending both fields at once is an ambiguous request and must be
+    rejected outright rather than the route silently picking one."""
+    response = client.post(
+        "/api/assistant",
+        json={"question": "at_risk_clients", "freeText": "also tell me about farms"},
+    )
+    assert response.status_code == 422
+
+
+def test_assistant_rejects_neither_field_present():
+    response = client.post("/api/assistant", json={})
+    assert response.status_code == 422
