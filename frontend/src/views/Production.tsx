@@ -126,7 +126,18 @@ export function Production() {
                           {farm.balances.length} segments
                         </p>
                       </div>
-                      <div className="grid gap-3 lg:grid-cols-2">
+                      <DataTable
+                        className="overflow-hidden rounded-lg border border-atlas-line bg-white shadow-sm"
+                        headers={[
+                          { label: "Segment" },
+                          { label: "Expected", align: "right" },
+                          { label: "Actual", align: "right" },
+                          { label: "Variance", align: "right" },
+                          { label: "Exported", align: "right" },
+                          { label: "Local", align: "right" },
+                          { label: "Export allocation" },
+                        ]}
+                      >
                         {farm.balances.map((balance) => {
                           const lines = data.allocations.filter(
                             (line) =>
@@ -134,68 +145,61 @@ export function Production() {
                               line.segment === balance.segment,
                           );
                           return (
-                            <article
-                              className="overflow-hidden rounded-xl border border-atlas-sage border-l-4 border-l-atlas-primary bg-white shadow-sm"
-                              key={balance.segment}
-                            >
-                              <header className="flex items-center gap-3 border-b border-atlas-line p-4">
-                                <span className="grid size-7 place-items-center rounded-md bg-atlas-primary text-xs font-bold text-white">
-                                  {balance.segment}
-                                </span>
-                                <div>
+                            <tr key={balance.segment}>
+                              <td>
+                                <div className="flex items-center gap-2">
+                                  <span className="grid size-7 place-items-center rounded-md bg-atlas-primary text-xs font-bold text-white">
+                                    {balance.segment}
+                                  </span>
                                   <strong>Segment {balance.segment}</strong>
-                                  <small className="mt-1 block text-[10px] text-atlas-muted">
-                                    {tonnes(balance.exportedT)} exported ·{" "}
-                                    {tonnes(balance.localT)} local
-                                  </small>
                                 </div>
-                              </header>
-                              <dl className="grid grid-cols-3 divide-x divide-atlas-line bg-atlas-sage/20">
-                                <Metric
-                                  label="Expected"
-                                  value={tonnes(balance.expectedT)}
-                                />
-                                <Metric
-                                  label="Actual"
-                                  value={tonnes(balance.actualT)}
-                                />
-                                <Metric
-                                  label="Variance"
-                                  value={`${balance.varianceT > 0 ? "+" : ""}${tonnes(balance.varianceT)}`}
-                                  tone={
-                                    balance.varianceT < 0
-                                      ? "text-atlas-primary"
-                                      : "text-atlas-green"
-                                  }
-                                />
-                              </dl>
-                              <div className="p-4">
-                                <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-atlas-primary">
-                                  Export allocation
-                                </p>
+                              </td>
+                              <td className="text-right tabular-nums">
+                                {tonnes(balance.expectedT)}
+                              </td>
+                              <td className="text-right font-bold tabular-nums">
+                                {tonnes(balance.actualT)}
+                              </td>
+                              <td
+                                className={`text-right font-bold tabular-nums ${balance.varianceT < 0 ? "text-atlas-primary" : "text-atlas-green"}`}
+                              >
+                                {balance.varianceT > 0 ? "+" : ""}
+                                {tonnes(balance.varianceT)}
+                              </td>
+                              <td className="text-right tabular-nums">
+                                {tonnes(balance.exportedT)}
+                              </td>
+                              <td className="text-right tabular-nums">
+                                {tonnes(balance.localT)}
+                              </td>
+                              <td className="min-w-60 whitespace-normal py-2">
                                 {lines.length ? (
-                                  lines.map((line) => (
-                                    <div
-                                      className="flex min-h-8 items-center justify-between border-t border-atlas-line text-xs"
-                                      key={line.clientId}
-                                    >
-                                      <span>
-                                        {names.get(line.clientId) ??
-                                          line.clientId}
-                                      </span>
-                                      <strong>{tonnes(line.tonnes)}</strong>
-                                    </div>
-                                  ))
+                                  <div className="grid gap-1.5">
+                                    {lines.map((line) => (
+                                      <div
+                                        className="flex items-center justify-between gap-5 rounded bg-slate-100 px-2.5 py-1.5"
+                                        key={line.clientId}
+                                      >
+                                        <span>
+                                          {names.get(line.clientId) ??
+                                            line.clientId}
+                                        </span>
+                                        <strong className="tabular-nums">
+                                          {tonnes(line.tonnes)}
+                                        </strong>
+                                      </div>
+                                    ))}
+                                  </div>
                                 ) : (
                                   <span className="text-xs text-atlas-muted">
                                     No export allocation
                                   </span>
                                 )}
-                              </div>
-                            </article>
+                              </td>
+                            </tr>
                           );
                         })}
-                      </div>
+                      </DataTable>
                     </div>
                   )}
                 >
@@ -261,24 +265,5 @@ export function Production() {
         </DataTable>
       </article>
     </section>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  tone = "",
-}: {
-  label: string;
-  value: string;
-  tone?: string;
-}) {
-  return (
-    <div className="p-3">
-      <dt className="text-[9px] font-extrabold uppercase tracking-wider text-atlas-muted">
-        {label}
-      </dt>
-      <dd className={`mt-1 text-sm font-bold ${tone}`}>{value}</dd>
-    </div>
   );
 }
