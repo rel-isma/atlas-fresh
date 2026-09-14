@@ -1,7 +1,7 @@
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { PlanData } from "../api/types";
 import { DataTable, TableEmpty } from "../components/DataTable";
-import { ExpandButton } from "../components/ExpandableRow";
+import { ExpandableTableRow, ExpandButton } from "../components/ExpandableRow";
 import { FilterChip } from "../components/FilterChipGroup";
 import { tonnes } from "../lib";
 import { usePlan } from "../state/PlanContext";
@@ -105,166 +105,156 @@ export function Production() {
             farms.map((farm) => {
               const expanded = open === farm.farmId;
               return (
-                <Fragment key={farm.farmId}>
-                  <tr
-                    className={
-                      expanded
-                        ? "bg-atlas-sage/45 shadow-[inset_4px_0_#092328]"
-                        : farm.variance < 0
-                          ? "shadow-[inset_2px_0_#B94A48]"
-                          : ""
-                    }
-                  >
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <i
-                          className={`size-1.5 rounded-full ${farm.variance < 0 ? "bg-red-700" : "bg-atlas-green"}`}
-                        />
+                <ExpandableTableRow
+                  key={farm.farmId}
+                  open={expanded}
+                  colSpan={9}
+                  hasRiskAccent={farm.variance < 0}
+                  details={() => (
+                    <div className="p-6">
+                      <div className="mb-4 flex items-end justify-between">
                         <div>
-                          <strong>{farm.farmId}</strong>
-                          <span className="mt-1 block text-[10px] text-atlas-muted">
-                            {farm.balances.length} segment records
+                          <span className="text-[10px] font-extrabold uppercase tracking-widest text-atlas-primary">
+                            Farm allocation overview
                           </span>
+                          <strong className="mt-1 block text-lg">
+                            {farm.farmId}
+                          </strong>
                         </div>
+                        <p className="text-xs text-atlas-muted">
+                          {tonnes(farm.actual)} received across{" "}
+                          {farm.balances.length} segments
+                        </p>
                       </div>
-                    </td>
-                    <td className="text-right tabular-nums">
-                      {tonnes(farm.expected)}
-                    </td>
-                    {segments.map((item) => {
-                      const row = farm.balances.find(
-                        (balance) => balance.segment === item,
-                      );
-                      return (
-                        <td className="text-right" key={item}>
-                          {row ? (
-                            <>
-                              <strong className="tabular-nums">
-                                {tonnes(row.actualT)}
-                              </strong>
-                              {row.varianceT !== 0 && (
-                                <span
-                                  className={`ml-1 text-[10px] font-bold ${row.varianceT < 0 ? "text-atlas-primary" : "text-atlas-green"}`}
-                                >
-                                  {row.varianceT > 0 ? "+" : ""}
-                                  {tonnes(row.varianceT)}
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        {farm.balances.map((balance) => {
+                          const lines = data.allocations.filter(
+                            (line) =>
+                              line.farmId === farm.farmId &&
+                              line.segment === balance.segment,
+                          );
+                          return (
+                            <article
+                              className="overflow-hidden rounded-xl border border-atlas-sage border-l-4 border-l-atlas-primary bg-white shadow-sm"
+                              key={balance.segment}
+                            >
+                              <header className="flex items-center gap-3 border-b border-atlas-line p-4">
+                                <span className="grid size-7 place-items-center rounded-md bg-atlas-primary text-xs font-bold text-white">
+                                  {balance.segment}
                                 </span>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-atlas-muted">—</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="text-right font-bold tabular-nums">
-                      {tonnes(farm.actual)}
-                    </td>
-                    <td className="text-right tabular-nums">
-                      {tonnes(farm.local)}
-                    </td>
-                    <td className="text-right">
-                      <ExpandButton
-                        open={expanded}
-                        label={farm.farmId}
-                        onClick={() => setOpen(expanded ? null : farm.farmId)}
-                      />
-                    </td>
-                  </tr>
-
-                  {expanded && (
-                    <tr className="detail-row">
-                      <td colSpan={9} className="bg-atlas-sage/30">
-                        <div className="p-6">
-                          <div className="mb-4 flex items-end justify-between">
-                            <div>
-                              <span className="text-[10px] font-extrabold uppercase tracking-widest text-atlas-primary">
-                                Farm allocation overview
-                              </span>
-                              <strong className="mt-1 block text-lg">
-                                {farm.farmId}
-                              </strong>
-                            </div>
-                            <p className="text-xs text-atlas-muted">
-                              {tonnes(farm.actual)} received across{" "}
-                              {farm.balances.length} segments
-                            </p>
-                          </div>
-                          <div className="grid gap-3 lg:grid-cols-2">
-                            {farm.balances.map((balance) => {
-                              const lines = data.allocations.filter(
-                                (line) =>
-                                  line.farmId === farm.farmId &&
-                                  line.segment === balance.segment,
-                              );
-                              return (
-                                <article
-                                  className="overflow-hidden rounded-xl border border-atlas-sage border-l-4 border-l-atlas-primary bg-white shadow-sm"
-                                  key={balance.segment}
-                                >
-                                  <header className="flex items-center gap-3 border-b border-atlas-line p-4">
-                                    <span className="grid size-7 place-items-center rounded-md bg-atlas-primary text-xs font-bold text-white">
-                                      {balance.segment}
-                                    </span>
-                                    <div>
-                                      <strong>Segment {balance.segment}</strong>
-                                      <small className="mt-1 block text-[10px] text-atlas-muted">
-                                        {tonnes(balance.exportedT)} exported ·{" "}
-                                        {tonnes(balance.localT)} local
-                                      </small>
-                                    </div>
-                                  </header>
-                                  <dl className="grid grid-cols-3 divide-x divide-atlas-line bg-atlas-sage/20">
-                                    <Metric
-                                      label="Expected"
-                                      value={tonnes(balance.expectedT)}
-                                    />
-                                    <Metric
-                                      label="Actual"
-                                      value={tonnes(balance.actualT)}
-                                    />
-                                    <Metric
-                                      label="Variance"
-                                      value={`${balance.varianceT > 0 ? "+" : ""}${tonnes(balance.varianceT)}`}
-                                      tone={
-                                        balance.varianceT < 0
-                                          ? "text-atlas-primary"
-                                          : "text-atlas-green"
-                                      }
-                                    />
-                                  </dl>
-                                  <div className="p-4">
-                                    <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-atlas-primary">
-                                      Export allocation
-                                    </p>
-                                    {lines.length ? (
-                                      lines.map((line) => (
-                                        <div
-                                          className="flex min-h-8 items-center justify-between border-t border-atlas-line text-xs"
-                                          key={line.clientId}
-                                        >
-                                          <span>
-                                            {names.get(line.clientId) ??
-                                              line.clientId}
-                                          </span>
-                                          <strong>{tonnes(line.tonnes)}</strong>
-                                        </div>
-                                      ))
-                                    ) : (
-                                      <span className="text-xs text-atlas-muted">
-                                        No export allocation
+                                <div>
+                                  <strong>Segment {balance.segment}</strong>
+                                  <small className="mt-1 block text-[10px] text-atlas-muted">
+                                    {tonnes(balance.exportedT)} exported ·{" "}
+                                    {tonnes(balance.localT)} local
+                                  </small>
+                                </div>
+                              </header>
+                              <dl className="grid grid-cols-3 divide-x divide-atlas-line bg-atlas-sage/20">
+                                <Metric
+                                  label="Expected"
+                                  value={tonnes(balance.expectedT)}
+                                />
+                                <Metric
+                                  label="Actual"
+                                  value={tonnes(balance.actualT)}
+                                />
+                                <Metric
+                                  label="Variance"
+                                  value={`${balance.varianceT > 0 ? "+" : ""}${tonnes(balance.varianceT)}`}
+                                  tone={
+                                    balance.varianceT < 0
+                                      ? "text-atlas-primary"
+                                      : "text-atlas-green"
+                                  }
+                                />
+                              </dl>
+                              <div className="p-4">
+                                <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-atlas-primary">
+                                  Export allocation
+                                </p>
+                                {lines.length ? (
+                                  lines.map((line) => (
+                                    <div
+                                      className="flex min-h-8 items-center justify-between border-t border-atlas-line text-xs"
+                                      key={line.clientId}
+                                    >
+                                      <span>
+                                        {names.get(line.clientId) ??
+                                          line.clientId}
                                       </span>
-                                    )}
-                                  </div>
-                                </article>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
+                                      <strong>{tonnes(line.tonnes)}</strong>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-atlas-muted">
+                                    No export allocation
+                                  </span>
+                                )}
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
-                </Fragment>
+                >
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <i
+                        className={`size-1.5 rounded-full ${farm.variance < 0 ? "bg-red-700" : "bg-atlas-green"}`}
+                      />
+                      <div>
+                        <strong>{farm.farmId}</strong>
+                        <span className="mt-1 block text-[10px] text-atlas-muted">
+                          {farm.balances.length} segment records
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="text-right tabular-nums">
+                    {tonnes(farm.expected)}
+                  </td>
+                  {segments.map((item) => {
+                    const row = farm.balances.find(
+                      (balance) => balance.segment === item,
+                    );
+                    return (
+                      <td className="text-right" key={item}>
+                        {row ? (
+                          <>
+                            <strong className="tabular-nums">
+                              {tonnes(row.actualT)}
+                            </strong>
+                            {row.varianceT !== 0 && (
+                              <span
+                                className={`ml-1 text-[10px] font-bold ${row.varianceT < 0 ? "text-atlas-primary" : "text-atlas-green"}`}
+                              >
+                                {row.varianceT > 0 ? "+" : ""}
+                                {tonnes(row.varianceT)}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-atlas-muted">—</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td className="text-right font-bold tabular-nums">
+                    {tonnes(farm.actual)}
+                  </td>
+                  <td className="text-right tabular-nums">
+                    {tonnes(farm.local)}
+                  </td>
+                  <td className="text-right">
+                    <ExpandButton
+                      open={expanded}
+                      label={farm.farmId}
+                      onClick={() => setOpen(expanded ? null : farm.farmId)}
+                    />
+                  </td>
+                </ExpandableTableRow>
               );
             })
           )}

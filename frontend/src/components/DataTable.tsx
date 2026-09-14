@@ -12,12 +12,12 @@ export function DataTable({
   return (
     <div className={`max-h-[65vh] overflow-auto ${className}`}>
       <table className="w-full min-w-max border-separate border-spacing-0 text-[12px]">
-        <thead className="sticky top-0 z-10 bg-[#DCEAE2] shadow-[0_1px_0_#C5D9CE]">
+        <thead className="sticky top-0 z-10 bg-atlas-primary text-white shadow-[0_1px_0_#092328]">
           <tr>
             {headers.map((header) => (
               <th
                 key={header.label}
-                className={`h-10 px-4 text-[10px] font-extrabold uppercase tracking-wider text-atlas-muted ${header.align === "right" ? "text-right" : "text-left"}`}
+                className={`h-10 px-4 text-[10px] font-extrabold uppercase tracking-wider text-white ${header.align === "right" ? "text-right" : "text-left"}`}
               >
                 {header.label}
               </th>
