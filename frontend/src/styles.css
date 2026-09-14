@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --color-atlas-deep: #092328;
+  --color-atlas-primary: #12544f;
+  --color-atlas-green: #2a835f;
+  --color-atlas-sage: #8bbb92;
+  --color-atlas-canvas: #e6f0e9;
+  --color-atlas-line: #c5d9ce;
+  --color-atlas-muted: #47645e;
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+  body {
+    @apply m-0 min-w-80 bg-atlas-canvas font-sans text-atlas-deep;
+  }
+  button {
+    @apply cursor-pointer;
+  }
+  button:disabled {
+    @apply cursor-not-allowed opacity-65;
+  }
+}
