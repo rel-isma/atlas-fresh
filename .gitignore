@@ -1,6 +1,41 @@
+# =========================
+# Backend - Python
+# =========================
+
 backend/.venv/
+backend/venv/
 backend/__pycache__/
 backend/**/__pycache__/
+backend/**/*.py[cod]
+backend/.pytest_cache/
+
+# Backend environment variables
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+
+# =========================
+# Frontend - React / Vite
+# =========================
+
 frontend/node_modules/
 frontend/dist/
+frontend/.vite/
+
+# Frontend environment variables
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+
+# =========================
+# General
+# =========================
+
 .env
+.env.*
+!.env.example
+
+*.log
+.DS_Store
