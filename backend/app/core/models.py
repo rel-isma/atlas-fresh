@@ -115,6 +115,8 @@ class FarmSegmentBalance:
     actual_t: int
     exported_t: int
     local_t: int
+    expected_t: float
+    variance_t: float
 
 
 @dataclass(frozen=True)

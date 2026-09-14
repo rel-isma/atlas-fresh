@@ -129,10 +129,20 @@ class FarmSegmentBalanceSchema(CamelModel):
     actual_t: int
     exported_t: int
     local_t: int
+    expected_t: float
+    variance_t: float
 
     @classmethod
     def from_domain(cls, b: FarmSegmentBalance) -> "FarmSegmentBalanceSchema":
-        return cls(farm_id=b.farm_id, segment=b.segment.value, actual_t=b.actual_t, exported_t=b.exported_t, local_t=b.local_t)
+        return cls(
+            farm_id=b.farm_id,
+            segment=b.segment.value,
+            actual_t=b.actual_t,
+            exported_t=b.exported_t,
+            local_t=b.local_t,
+            expected_t=b.expected_t,
+            variance_t=b.variance_t,
+        )
 
 
 class ClientResultSchema(CamelModel):

@@ -238,11 +238,21 @@ def _derive_reason(status: ClientStatus, capacity_remaining: int) -> ShortageRea
 def _build_farm_segment_balances(
     farms: list[Farm], supply_after: dict[tuple[str, Segment], int]
 ) -> list[FarmSegmentBalance]:
+    """Uses the same "expected = capacity x mix" formula already
+    approved for the aggregate segment_variances (Phase 5 SS11),
+    computed here per farm/segment instead of summed across all farms.
+    No new business rule — same formula, finer granularity, exposed
+    alongside the aggregate rather than replacing it (Overview's
+    segment chart still needs the aggregate)."""
     balances: list[FarmSegmentBalance] = []
     for farm in farms:
         for segment in SEGMENT_ORDER:
             actual_t = farm.actual[segment]
-            if actual_t <= 0:
+            expected_t = farm.expected_capacity_t * farm.expected_mix[segment]
+            # Skip only if this farm neither expected nor actually
+            # produced this segment at all — surfaces the genuine gap
+            # case (expected > 0, actual == 0) rather than hiding it.
+            if actual_t <= 0 and expected_t <= 0:
                 continue
             local_t = supply_after[(farm.farm_id, segment)]
             exported_t = actual_t - local_t
@@ -253,6 +263,8 @@ def _build_farm_segment_balances(
                     actual_t=actual_t,
                     exported_t=exported_t,
                     local_t=local_t,
+                    expected_t=expected_t,
+                    variance_t=actual_t - expected_t,
                 )
             )
     return balances

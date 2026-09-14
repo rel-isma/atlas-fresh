@@ -243,5 +243,42 @@ class TestFullBaselineReproduction(unittest.TestCase):
         self.assertEqual((c01.status, c01.allocated_t, c01.revenue_eur), (ClientStatus.COMPLETE, 50, 75_000))
 
 
+class TestFarmSegmentVariance(unittest.TestCase):
+    """Business rule: farm_segment_balances now carries expected_t and
+    variance_t per farm/segment, using the same already-approved
+    "expected = capacity x mix" formula previously only exposed in
+    aggregate (segment_variances). Verified against the real workbook
+    and independently cross-checked against a reference UI mockup
+    built from the same data (F18: B expected 22.4t/actual 10t =
+    -12.4 variance; C expected 9.6t/actual 15t = +5.4 variance)."""
+
+    def test_farm_segment_variance_matches_reference(self):
+        farms, clients, station = _load_baseline()
+        result = allocate(farms, clients, station)
+
+        f18_rows = {b.segment: b for b in result.farm_segment_balances if b.farm_id == "F18"}
+        self.assertAlmostEqual(f18_rows[Segment.B].expected_t, 22.4, places=2)
+        self.assertAlmostEqual(f18_rows[Segment.B].variance_t, -12.4, places=2)
+        self.assertAlmostEqual(f18_rows[Segment.C].expected_t, 9.6, places=2)
+        self.assertAlmostEqual(f18_rows[Segment.C].variance_t, 5.4, places=2)
+
+    def test_variance_equals_actual_minus_expected_for_every_row(self):
+        farms, clients, station = _load_baseline()
+        result = allocate(farms, clients, station)
+
+        for b in result.farm_segment_balances:
+            self.assertAlmostEqual(b.variance_t, b.actual_t - b.expected_t, places=6)
+
+    def test_aggregate_segment_variances_still_present_and_unaffected(self):
+        """Confirms this change is additive: the aggregate 4-row
+        segment_variances (used by Overview's chart) is untouched."""
+        farms, clients, station = _load_baseline()
+        result = allocate(farms, clients, station)
+
+        self.assertEqual(len(result.segment_variances), 4)
+        segments = {v.segment for v in result.segment_variances}
+        self.assertEqual(segments, {Segment.A, Segment.B, Segment.C, Segment.D})
+
+
 if __name__ == "__main__":
     unittest.main()
