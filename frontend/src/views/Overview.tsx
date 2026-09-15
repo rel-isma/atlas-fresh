@@ -283,7 +283,7 @@ function ExpectedActualChart({ rows }: { rows: PlanData["segmentVariances"] }) {
                   fontSize={10}
                   fontWeight={700}
                   fill="#47645E"
-                  formatter={(v: number) => `${parseFloat(v.toFixed(1))}t`}
+                  formatter={(v: any) => typeof v === "number" ? `${parseFloat(v.toFixed(1))}t` : `${v ?? ""}`}
                 />
               </Bar>
               <Bar
@@ -299,7 +299,7 @@ function ExpectedActualChart({ rows }: { rows: PlanData["segmentVariances"] }) {
                   fontSize={10}
                   fontWeight={700}
                   fill="#12544F"
-                  formatter={(v: number) => `${parseFloat(v.toFixed(1))}t`}
+                  formatter={(v: any) => typeof v === "number" ? `${parseFloat(v.toFixed(1))}t` : `${v ?? ""}`}
                 />
               </Bar>
             </BarChart>
