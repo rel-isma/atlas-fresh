@@ -1,5 +1,5 @@
 import { CheckCircle2 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from "recharts";
 import type { ReactNode } from "react";
 import type { PlanData } from "../api/types";
 import { DataTable, TableEmpty } from "../components/DataTable";
@@ -242,49 +242,79 @@ function ExpectedActualChart({ rows }: { rows: PlanData["segmentVariances"] }) {
         <CardTitle>Expected vs actual</CardTitle>
         <CardDescription>Tonnes by quality segment</CardDescription>
       </CardHeader>
-      <CardContent className="h-72 px-3 pb-3 pt-5 sm:px-5">
-        <ChartContainer config={chartConfig}>
-          <BarChart
-            accessibilityLayer
-            data={chartData}
-            margin={{ top: 8, right: 8, left: -16, bottom: 0 }}
-          >
-            <CartesianGrid
-              vertical={false}
-              stroke="#C5D9CE"
-              strokeDasharray="3 5"
-            />
-            <XAxis
-              dataKey="segment"
-              tickLine={false}
-              axisLine={false}
-              tickMargin={10}
-              tick={{ fill: "#47645E", fontSize: 12, fontWeight: 700 }}
-            />
-            <YAxis
-              tickLine={false}
-              axisLine={false}
-              width={42}
-              tick={{ fill: "#47645E", fontSize: 10 }}
-              tickFormatter={(value) => `${value}t`}
-            />
-            <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-            <Bar
-              dataKey="expected"
-              name="Expected"
-              fill="var(--color-expected)"
-              radius={[5, 5, 0, 0]}
-              maxBarSize={32}
-            />
-            <Bar
-              dataKey="actual"
-              name="Actual"
-              fill="var(--color-actual)"
-              radius={[5, 5, 0, 0]}
-              maxBarSize={32}
-            />
-          </BarChart>
-        </ChartContainer>
+      <CardContent className="px-3 pb-4 pt-5 sm:px-5">
+        <div className="h-60">
+          <ChartContainer config={chartConfig}>
+            <BarChart
+              accessibilityLayer
+              data={chartData}
+              margin={{ top: 20, right: 8, left: -16, bottom: 0 }}
+            >
+              <CartesianGrid
+                vertical={false}
+                stroke="#C5D9CE"
+                strokeDasharray="3 5"
+              />
+              <XAxis
+                dataKey="segment"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={10}
+                tick={{ fill: "#47645E", fontSize: 12, fontWeight: 700 }}
+              />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                width={42}
+                tick={{ fill: "#47645E", fontSize: 10 }}
+                tickFormatter={(value) => `${value}t`}
+              />
+              <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+              <Bar
+                dataKey="expected"
+                name="Expected"
+                fill="var(--color-expected)"
+                radius={[5, 5, 0, 0]}
+                maxBarSize={32}
+              >
+                <LabelList
+                  dataKey="expected"
+                  position="top"
+                  fontSize={10}
+                  fontWeight={700}
+                  fill="#47645E"
+                  formatter={(v: number) => `${parseFloat(v.toFixed(1))}t`}
+                />
+              </Bar>
+              <Bar
+                dataKey="actual"
+                name="Actual"
+                fill="var(--color-actual)"
+                radius={[5, 5, 0, 0]}
+                maxBarSize={32}
+              >
+                <LabelList
+                  dataKey="actual"
+                  position="top"
+                  fontSize={10}
+                  fontWeight={700}
+                  fill="#12544F"
+                  formatter={(v: number) => `${parseFloat(v.toFixed(1))}t`}
+                />
+              </Bar>
+            </BarChart>
+          </ChartContainer>
+        </div>
+        <div className="flex items-center justify-center gap-5 pt-3">
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block size-2.5 rounded-sm" style={{ background: "#8BBB92" }} />
+            <span className="text-xs font-medium text-atlas-muted">Expected</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block size-2.5 rounded-sm" style={{ background: "#12544F" }} />
+            <span className="text-xs font-medium text-atlas-muted">Actual</span>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

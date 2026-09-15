@@ -79,6 +79,7 @@ export function Production() {
         <DataTable
           headers={[
             { label: "Farm ID" },
+            { label: "Status" },
             { label: "Expected", align: "right" },
             ...segments.map((item) => ({
               label: `Actual ${item}`,
@@ -90,7 +91,7 @@ export function Production() {
           ]}
         >
           {farms.length === 0 ? (
-            <TableEmpty colSpan={9} title="No farms match these filters." />
+            <TableEmpty colSpan={10} title="No farms match these filters." />
           ) : (
             farms.map((farm) => {
               const expanded = open === farm.farmId;
@@ -98,7 +99,7 @@ export function Production() {
                 <ExpandableTableRow
                   key={farm.farmId}
                   open={expanded}
-                  colSpan={9}
+                  colSpan={10}
                   hasRiskAccent={farm.belowPlan}
                   details={() => (
                     <div className="p-6">
@@ -206,12 +207,14 @@ export function Production() {
                           {farm.balances.length} segment records
                         </span>
                       </div>
-                      <span
-                        className={`ml-auto whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${farm.belowPlan ? "bg-red-50 text-red-700" : "bg-emerald-50 text-atlas-green"}`}
-                      >
-                        {farm.belowPlan ? "Below plan" : "On plan"}
-                      </span>
                     </div>
+                  </td>
+                  <td>
+                    <span
+                      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${farm.belowPlan ? "bg-red-50 text-red-700" : "bg-emerald-50 text-atlas-green"}`}
+                    >
+                      {farm.belowPlan ? "Below plan" : "On plan"}
+                    </span>
                   </td>
                   <td className="text-right tabular-nums">
                     {tonnes(farm.expectedT)}
