@@ -49,10 +49,3 @@ export function CardContent({
 }: HTMLAttributes<HTMLElement>) {
   return <div className={className} {...props} />;
 }
-
-export function CardFooter({
-  className = "",
-  ...props
-}: HTMLAttributes<HTMLElement>) {
-  return <footer className={className} {...props} />;
-}

@@ -280,5 +280,73 @@ class TestFarmSegmentVariance(unittest.TestCase):
         self.assertEqual(segments, {Segment.A, Segment.B, Segment.C, Segment.D})
 
 
+class TestCanonicalSummariesAndNarrative(unittest.TestCase):
+    def test_client_and_farm_summaries_are_computed_by_engine(self):
+        farms, clients, station = _load_baseline()
+        result = allocate(farms, clients, station)
+
+        summary = result.client_status_summary
+        self.assertEqual(
+            (
+                summary.client_count,
+                summary.complete_count,
+                summary.partial_count,
+                summary.unserved_count,
+            ),
+            (10, 7, 3, 0),
+        )
+        self.assertEqual(
+            (
+                summary.complete_pct,
+                summary.partial_pct,
+                summary.unserved_pct,
+                summary.partial_end_pct,
+            ),
+            (70.0, 30.0, 0.0, 100.0),
+        )
+        self.assertEqual(
+            result.farm_summaries,
+            sorted(
+                result.farm_summaries,
+                key=lambda farm: farm.variance_t,
+            ),
+        )
+
+    def test_local_ratio_in_narrative_uses_station_configuration(self):
+        farm = Farm(
+            farm_id="F01",
+            name="Farm One",
+            expected_capacity_t=10,
+            expected_mix={
+                Segment.A: 1.0,
+                Segment.B: 0,
+                Segment.C: 0,
+                Segment.D: 0,
+            },
+            actual={
+                Segment.A: 10,
+                Segment.B: 0,
+                Segment.C: 0,
+                Segment.D: 0,
+            },
+        )
+        station = Station(
+            station_id="STATION-01",
+            capacity_t=0,
+            local_market_ratio=0.2,
+            reference_prices={
+                Segment.A: 1000,
+                Segment.B: 800,
+                Segment.C: 600,
+                Segment.D: 400,
+            },
+        )
+
+        result = allocate([farm], [], station)
+
+        self.assertIn("20% of reference price", result.narrative.local_residual)
+        self.assertNotIn("10% of reference price", result.narrative.local_residual)
+
+
 if __name__ == "__main__":
     unittest.main()

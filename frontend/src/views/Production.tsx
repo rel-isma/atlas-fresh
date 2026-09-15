@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { PlanData } from "../api/types";
+import type { Segment } from "../api/types";
 import { DataTable, TableEmpty } from "../components/DataTable";
 import { ExpandableTableRow, ExpandButton } from "../components/ExpandableRow";
 import { FilterChip } from "../components/FilterChipGroup";
@@ -7,7 +7,7 @@ import { tonnes } from "../lib";
 import { usePlan } from "../state/PlanContext";
 import { PageHeading, PanelHeader } from "./Overview";
 
-const segments = ["A", "B", "C", "D"];
+const segments: Segment[] = ["A", "B", "C", "D"];
 
 export function Production() {
   const { data } = usePlan();
@@ -17,30 +17,20 @@ export function Production() {
   if (!data) return null;
 
   const farms = useMemo(() => {
-    const groups = data.farmSegmentBalances.reduce<
-      Record<string, PlanData["farmSegmentBalances"]>
-    >((all, row) => {
-      (all[row.farmId] ??= []).push(row);
-      return all;
-    }, {});
-
-    return Object.values(groups)
-      .map((balances) => ({
-        farmId: balances[0].farmId,
-        balances,
-        expected: balances.reduce((sum, row) => sum + row.expectedT, 0),
-        actual: balances.reduce((sum, row) => sum + row.actualT, 0),
-        local: balances.reduce((sum, row) => sum + row.localT, 0),
-        variance: balances.reduce((sum, row) => sum + row.varianceT, 0),
+    return data.farmSummaries
+      .map((farm) => ({
+        ...farm,
+        balances: data.farmSegmentBalances.filter(
+          (balance) => balance.farmId === farm.farmId,
+        ),
       }))
       .filter(
         (farm) =>
           (segment === "ALL" ||
             farm.balances.some((row) => row.segment === segment)) &&
-          (!below || farm.variance < 0),
-      )
-      .sort((a, b) => a.variance - b.variance);
-  }, [data.farmSegmentBalances, segment, below]);
+          (!below || farm.belowPlan),
+      );
+  }, [data.farmSummaries, data.farmSegmentBalances, segment, below]);
 
   const names = new Map(
     data.clientResults.map((client) => [client.clientId, client.name]),
@@ -109,7 +99,7 @@ export function Production() {
                   key={farm.farmId}
                   open={expanded}
                   colSpan={9}
-                  hasRiskAccent={farm.variance < 0}
+                  hasRiskAccent={farm.belowPlan}
                   details={() => (
                     <div className="p-6">
                       <div className="mb-4 flex items-end justify-between">
@@ -122,7 +112,7 @@ export function Production() {
                           </strong>
                         </div>
                         <p className="text-xs text-atlas-muted">
-                          {tonnes(farm.actual)} received across{" "}
+                          {tonnes(farm.actualT)} received across{" "}
                           {farm.balances.length} segments
                         </p>
                       </div>
@@ -161,9 +151,11 @@ export function Production() {
                                 {tonnes(balance.actualT)}
                               </td>
                               <td
-                                className={`text-right font-bold tabular-nums ${balance.varianceT < 0 ? "text-atlas-primary" : "text-atlas-green"}`}
+                                className={`text-right font-bold tabular-nums ${balance.varianceDirection === "BELOW" ? "text-atlas-primary" : "text-atlas-green"}`}
                               >
-                                {balance.varianceT > 0 ? "+" : ""}
+                                {balance.varianceDirection === "ABOVE"
+                                  ? "+"
+                                  : ""}
                                 {tonnes(balance.varianceT)}
                               </td>
                               <td className="text-right tabular-nums">
@@ -206,7 +198,7 @@ export function Production() {
                   <td>
                     <div className="flex items-center gap-2">
                       <i
-                        className={`size-1.5 rounded-full ${farm.variance < 0 ? "bg-red-700" : "bg-atlas-green"}`}
+                        className={`size-1.5 rounded-full ${farm.belowPlan ? "bg-red-700" : "bg-atlas-green"}`}
                       />
                       <div>
                         <strong>{farm.farmId}</strong>
@@ -217,7 +209,7 @@ export function Production() {
                     </div>
                   </td>
                   <td className="text-right tabular-nums">
-                    {tonnes(farm.expected)}
+                    {tonnes(farm.expectedT)}
                   </td>
                   {segments.map((item) => {
                     const row = farm.balances.find(
@@ -230,11 +222,11 @@ export function Production() {
                             <strong className="tabular-nums">
                               {tonnes(row.actualT)}
                             </strong>
-                            {row.varianceT !== 0 && (
+                            {row.varianceDirection !== "ON_PLAN" && (
                               <span
-                                className={`ml-1 text-[10px] font-bold ${row.varianceT < 0 ? "text-atlas-primary" : "text-atlas-green"}`}
+                                className={`ml-1 text-[10px] font-bold ${row.varianceDirection === "BELOW" ? "text-atlas-primary" : "text-atlas-green"}`}
                               >
-                                {row.varianceT > 0 ? "+" : ""}
+                                {row.varianceDirection === "ABOVE" ? "+" : ""}
                                 {tonnes(row.varianceT)}
                               </span>
                             )}
@@ -246,10 +238,10 @@ export function Production() {
                     );
                   })}
                   <td className="text-right font-bold tabular-nums">
-                    {tonnes(farm.actual)}
+                    {tonnes(farm.actualT)}
                   </td>
                   <td className="text-right tabular-nums">
-                    {tonnes(farm.local)}
+                    {tonnes(farm.localT)}
                   </td>
                   <td className="text-right">
                     <ExpandButton

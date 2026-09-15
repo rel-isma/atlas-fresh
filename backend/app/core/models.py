@@ -45,6 +45,12 @@ class ShortageReason(str, Enum):
     INSUFFICIENT_COMPATIBLE_SEGMENT = "INSUFFICIENT_COMPATIBLE_SEGMENT"
 
 
+class VarianceDirection(str, Enum):
+    BELOW = "BELOW"
+    ON_PLAN = "ON_PLAN"
+    ABOVE = "ABOVE"
+
+
 # ----------------------------------------------------------------------
 # Source / input data — validated upstream (Phase 4), immutable here.
 # ----------------------------------------------------------------------
@@ -117,6 +123,7 @@ class FarmSegmentBalance:
     local_t: int
     expected_t: float
     variance_t: float
+    variance_direction: VarianceDirection
 
 
 @dataclass(frozen=True)
@@ -138,10 +145,33 @@ class SegmentVariance:
 
 
 @dataclass(frozen=True)
+class FarmSummary:
+    farm_id: str
+    expected_t: float
+    actual_t: int
+    local_t: int
+    variance_t: float
+    below_plan: bool
+
+
+@dataclass(frozen=True)
+class ClientStatusSummary:
+    client_count: int
+    complete_count: int
+    partial_count: int
+    unserved_count: int
+    complete_pct: float
+    partial_pct: float
+    unserved_pct: float
+    partial_end_pct: float
+
+
+@dataclass(frozen=True)
 class Kpis:
     expected_plan_t: float
     actual_received_t: float
     station_capacity_t: int
+    local_market_ratio: float
     actual_by_segment: dict[Segment, int]
     export_t: int
     export_rate: float | None  # None only if actual_received_t == 0
@@ -171,8 +201,10 @@ class Narrative:
 @dataclass(frozen=True)
 class PlanResult:
     kpis: Kpis
+    client_status_summary: ClientStatusSummary
     narrative: Narrative
     segment_variances: list[SegmentVariance]
+    farm_summaries: list[FarmSummary]
     farm_segment_balances: list[FarmSegmentBalance]
     client_results: list[ClientResult]
     allocations: list[Allocation]

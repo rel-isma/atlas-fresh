@@ -29,7 +29,13 @@ app = FastAPI(title="Atlas Fresh — Daily Export Planner API")
 # ALLOWED_ORIGINS to the deployed frontend's real URL via the
 # platform's environment variable settings — never hardcode a
 # deployed URL into source.
-allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+allowed_origins = [
+    origin.strip()
+    for origin in os.environ.get(
+        "ALLOWED_ORIGINS", "http://localhost:5173"
+    ).split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,

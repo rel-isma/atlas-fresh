@@ -5,33 +5,42 @@ already-built context dict. This module defines that abstraction and
 FallbackProvider: a deterministic, dependency-free implementation that
 is always available, built entirely from PlanResult data.
 
-A real LLM-backed provider can be added later behind the same
-AssistantProvider interface without touching context.py, guard.py, or
-the API routes. Importing this module never requires an API key or
-network access — there is no mandatory external dependency here.
+The optional LLM-backed provider uses the same interface. Importing this
+module never requires an API key or the Anthropic dependency because the SDK
+is loaded only when the real provider is constructed.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol, cast
 
 from ..models import PlanResult
+from .context import (
+    AssistantContext,
+    AtRiskContext,
+    FarmGapsContext,
+    LocalResidualContext,
+    QuestionKey,
+)
+from .guard import extract_referenced_ids
+
+LLM_TIMEOUT_SECONDS = 15.0
 
 
 @dataclass(frozen=True)
 class ProviderResult:
     answer: str
     cited_ids: list[str]
-    source: str  # "llm" | "fallback"
+    source: Literal["llm", "fallback"]
 
 
 class AssistantProvider(Protocol):
     def answer(
         self,
         *,
-        question_key: str | None,
+        question_key: QuestionKey | None,
         question_text: str | None,
-        context: dict,
+        context: AssistantContext,
         plan: PlanResult,
     ) -> ProviderResult: ...
 
@@ -40,7 +49,7 @@ class FallbackProvider:
     """Always available. Builds a plain-language answer directly from
     the structured context passed in — no network call, no API key,
     no external dependency. This is what runs when no real provider is
-    configured, or when a real provider fails or times out.
+    configured or the optional provider cannot be constructed.
 
     FallbackProvider only understands the three narrow, pre-built
     contexts from context.build_context() — it has no way to reason
@@ -51,22 +60,22 @@ class FallbackProvider:
     def answer(
         self,
         *,
-        question_key: str | None,
+        question_key: QuestionKey | None,
         question_text: str | None = None,
-        context: dict,
+        context: AssistantContext,
         plan: PlanResult,
     ) -> ProviderResult:
         if question_key == "at_risk_clients":
-            return self._at_risk_clients(context)
+            return self._at_risk_clients(cast(AtRiskContext, context))
         if question_key == "farm_gaps":
-            return self._farm_gaps(context)
+            return self._farm_gaps(cast(FarmGapsContext, context))
         if question_key == "local_residual":
-            return self._local_residual(context)
+            return self._local_residual(cast(LocalResidualContext, context))
         raise ValueError(f"Unsupported question key: {question_key!r}")
 
     # -- at_risk_clients --------------------------------------------
 
-    def _at_risk_clients(self, context: dict) -> ProviderResult:
+    def _at_risk_clients(self, context: AtRiskContext) -> ProviderResult:
         clients = context["clients"]
         if not clients:
             return ProviderResult(
@@ -95,7 +104,7 @@ class FallbackProvider:
 
     # -- farm_gaps ----------------------------------------------------
 
-    def _farm_gaps(self, context: dict) -> ProviderResult:
+    def _farm_gaps(self, context: FarmGapsContext) -> ProviderResult:
         variances = context["segment_variances"]
         worst = variances[0]  # already sorted ascending: most negative first
         residual_farms = context["local_residual_farms"]
@@ -108,16 +117,24 @@ class FallbackProvider:
             f"({direction} plan by {abs(worst['variance_t']):.1f}t)."
         )
         if residual_farms:
-            residual_segment = residual_farms[0]["segment"]
+            farms_by_segment: dict[str, set[str]] = {}
+            for row in residual_farms:
+                farms_by_segment.setdefault(row["segment"], set()).add(
+                    row["farm_id"]
+                )
+            segment_details = "; ".join(
+                f"Segment {segment}: {', '.join(sorted(farm_ids))}"
+                for segment, farm_ids in sorted(farms_by_segment.items())
+            )
             answer += (
-                f" Separately, {len(cited_ids)} farm(s) ({', '.join(cited_ids)}) had Segment "
-                f"{residual_segment} supply that went to the local market rather than export."
+                f" Separately, {len(cited_ids)} farm(s) had supply that went to "
+                f"the local market rather than export ({segment_details})."
             )
         return ProviderResult(answer=answer, cited_ids=cited_ids, source="fallback")
 
     # -- local_residual -------------------------------------------------
 
-    def _local_residual(self, context: dict) -> ProviderResult:
+    def _local_residual(self, context: LocalResidualContext) -> ProviderResult:
         volume = context["local_volume_t"]
         value = context["local_value_eur"]
         rows = context["rows"]
@@ -188,15 +205,19 @@ class LLMProvider:
 
         import anthropic  # raises ImportError here if not installed
 
-        self._client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        self._client = anthropic.Anthropic(
+            api_key=os.environ["ANTHROPIC_API_KEY"],
+            timeout=LLM_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
         self._model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
     def answer(
         self,
         *,
-        question_key: str | None,
+        question_key: QuestionKey | None,
         question_text: str | None,
-        context: dict,
+        context: AssistantContext,
         plan: PlanResult,
     ) -> ProviderResult:
         import json
@@ -231,12 +252,4 @@ class LLMProvider:
 
     @staticmethod
     def _extract_ids(text: str) -> list[str]:
-        import re
-
-        found = re.findall(r"\b[CF]\d{2}\b", text)
-        # De-duplicate while preserving first-seen order.
-        seen: list[str] = []
-        for fid in found:
-            if fid not in seen:
-                seen.append(fid)
-        return seen
+        return extract_referenced_ids(text)

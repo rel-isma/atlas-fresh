@@ -3,7 +3,7 @@
 Thin route. Recomputes the same PlanResult /api/plan would produce
 (no caching, no persistence — consistent with the rest of the
 backend), builds structured context, calls the configured provider
-(only FallbackProvider exists in this phase), and validates the
+(with a deterministic fallback), and validates the
 result through the guard before returning it. No allocation logic,
 no business calculation, lives here.
 """
@@ -20,6 +20,7 @@ from ..core.assistant.guard import UngroundedAnswerError, ensure_grounded
 from ..core.assistant.provider import FallbackProvider, get_default_provider
 from ..core.engine import allocate
 from ..core.loader import load_workbook
+from ..core.models import PlanResult
 from ..core.validation import to_domain, validate
 from .schemas import AssistantAvailableResponse, AssistantRequest, AssistantUnavailableResponse
 
@@ -30,11 +31,16 @@ router = APIRouter()
 DATA_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "Atlas_Fresh_Production_Commercial_Data.xlsx"
 
 
-def _json(body, status_code: int = 200) -> JSONResponse:
+AssistantResponse = AssistantAvailableResponse | AssistantUnavailableResponse
+
+
+def _json(body: AssistantResponse, status_code: int = 200) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=body.model_dump(by_alias=True))
 
 
-def _load_current_plan():
+def _load_current_plan() -> tuple[
+    PlanResult | None, AssistantUnavailableResponse | None
+]:
     """Returns (plan_result, None) on success, or (None, unavailable_response)
     if the plan cannot currently be computed — the assistant must never
     answer from stale or fabricated data."""
@@ -46,7 +52,14 @@ def _load_current_plan():
         logger.exception("Assistant: failed to read workbook")
         return None, AssistantUnavailableResponse(reason="plan_unavailable", fallback_answer=None)
 
-    issues = validate(raw)
+    try:
+        issues = validate(raw)
+    except Exception:
+        logger.exception("Assistant: failed to validate workbook")
+        return None, AssistantUnavailableResponse(
+            reason="plan_unavailable",
+            fallback_answer=None,
+        )
     if issues:
         return None, AssistantUnavailableResponse(
             reason="plan_unavailable",
@@ -63,11 +76,12 @@ def _load_current_plan():
     return plan, None
 
 
-@router.post("/api/assistant", response_model=None)
-def ask_assistant(request: AssistantRequest):
+@router.post("/api/assistant", response_model=AssistantResponse)
+def ask_assistant(request: AssistantRequest) -> JSONResponse:
     plan, unavailable = _load_current_plan()
     if unavailable is not None:
         return _json(unavailable)
+    assert plan is not None
 
     # Resolve which of the three supported questions is being asked.
     # 1) An exact structured key ("question": "at_risk_clients", ...).
@@ -82,8 +96,8 @@ def ask_assistant(request: AssistantRequest):
     #    when only the fallback is available (no point building a full
     #    context nothing will use).
     provider = get_default_provider()
-    question_key: str | None = None
-    built_context: dict | None = None
+    question_key: ctx.QuestionKey | None = None
+    built_context: ctx.AssistantContext | None = None
     question_text: str | None = None
 
     if request.question is not None:
@@ -126,9 +140,13 @@ def ask_assistant(request: AssistantRequest):
 
     # Guard: every cited ID must genuinely exist in this PlanResult.
     try:
-        grounded_ids = ensure_grounded(result.cited_ids, plan)
+        grounded_ids = ensure_grounded(
+            result.cited_ids,
+            plan,
+            answer=result.answer,
+        )
     except UngroundedAnswerError:
-        logger.warning("Assistant answer rejected: cited only unknown IDs")
+        logger.warning("Assistant answer rejected: response referenced unknown IDs")
         return _json(
             AssistantUnavailableResponse(
                 reason="invalid_output",

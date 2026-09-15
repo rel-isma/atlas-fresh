@@ -1,4 +1,4 @@
-import { ArrowRight, Bot, LoaderCircle, Send, Sparkles, X } from "lucide-react";
+import { ArrowRight, Bot, Send, Sparkles, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { askAssistant } from "../api/client";
@@ -35,7 +35,7 @@ export function AssistantDrawer({
 
   useEffect(() => {
     historyEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, busy]);
+  }, [open, messages, busy]);
 
   async function submit(body: AssistantRequest, displayText: string) {
     if (busy) return;
@@ -132,19 +132,30 @@ export function AssistantDrawer({
             </div>
           </div>
         ) : (
-          <div className="space-y-4 py-2">
+          <div className="space-y-3 py-2">
             {messages.map((message) => (
               <article
                 key={message.id}
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === "user" ? "rounded-br-md bg-atlas-primary text-white" : message.unavailable ? "rounded-bl-md border border-red-200 bg-red-200/40 text-atlas-deep" : "rounded-bl-md bg-atlas-sage/15 text-atlas-deep"}`}
+                  className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                    message.role === "user"
+                      ? "max-w-[85%] rounded-br-md bg-atlas-primary text-white"
+                      : message.unavailable
+                        ? "max-w-[90%] rounded-bl-md border border-red-200 bg-red-200/40 text-atlas-deep"
+                        : "max-w-[90%] rounded-bl-md bg-atlas-sage/15 text-atlas-deep"
+                  }`}
                 >
                   {message.role === "assistant" && (
-                    <span className="mb-1 flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-atlas-primary">
+                    <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-atlas-primary">
                       <Sparkles className="size-3" />
                       Atlas
+                    </span>
+                  )}
+                  {message.role === "user" && (
+                    <span className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-wider text-white/70">
+                      You
                     </span>
                   )}
                   <p>{message.text}</p>
@@ -158,9 +169,13 @@ export function AssistantDrawer({
             ))}
             {busy && (
               <div className="flex justify-start">
-                <div className="inline-flex items-center gap-2 rounded-2xl rounded-bl-md bg-atlas-sage/15 px-4 py-3 text-sm text-atlas-muted">
-                  <LoaderCircle className="size-4 animate-spin" /> Reviewing the
-                  plan…
+                <div className="inline-flex items-center gap-3 rounded-2xl rounded-bl-md bg-atlas-sage/15 px-4 py-3.5 text-sm text-atlas-muted">
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block size-1.5 animate-bounce rounded-full bg-atlas-primary/60 [animation-delay:0ms]" />
+                    <span className="inline-block size-1.5 animate-bounce rounded-full bg-atlas-primary/60 [animation-delay:150ms]" />
+                    <span className="inline-block size-1.5 animate-bounce rounded-full bg-atlas-primary/60 [animation-delay:300ms]" />
+                  </span>
+                  Reviewing the plan…
                 </div>
               </div>
             )}
@@ -187,6 +202,7 @@ export function AssistantDrawer({
             }}
             placeholder="Ask about today’s plan"
             disabled={busy}
+            maxLength={1000}
             rows={2}
           />
           <div className="mt-1 flex items-center justify-between">

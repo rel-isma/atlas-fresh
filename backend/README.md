@@ -15,7 +15,7 @@ backend/
 │   │   ├── plan.py          GET /api/plan  (thin route)
 │   │   ├── assistant.py     POST /api/assistant  (thin route)
 │   │   └── schemas.py       Pydantic response models (camelCase JSON)
-│   └── core/                 PURE PYTHON. No FastAPI/Pydantic imports.
+│   └── core/                 Domain code. No FastAPI/Pydantic imports.
 │       ├── models.py         Domain dataclasses (source + calculated)
 │       ├── loader.py         Mechanical .xlsx extraction only
 │       ├── validation.py     Business rules -> ValidationIssue list
@@ -23,21 +23,24 @@ backend/
 │       ├── narrative.py      Dynamic narrative text generation
 │       └── assistant/
 │           ├── context.py    Builds minimal context from PlanResult
-│           ├── guard.py      Rejects/strips unknown cited IDs
-│           └── provider.py   FallbackProvider (deterministic, no AI)
+│           ├── guard.py      Rejects answers containing unknown IDs
+│           └── provider.py   Deterministic fallback + optional LLM provider
 ├── data/
 │   └── Atlas_Fresh_Production_Commercial_Data.xlsx   (read-only seed)
 ├── tests/
-│   ├── test_engine.py         6 approved engine tests
+│   ├── test_engine.py         Allocation and summary tests
 │   ├── test_assistant_core.py  Assistant grounding tests (pure)
+│   ├── test_validation.py      Workbook validation edge cases
+│   ├── test_schemas.py         Request/response contract tests
 │   └── test_api.py             API boundary tests (FastAPI TestClient)
 └── requirements.txt
 ```
 
 **Dependency direction is one-way:** `app/api` depends on `app/core`;
-`app/core` never imports FastAPI, Pydantic, HTTP, or database
-libraries. The engine (`core/engine.py`) is fully independent of the
-web framework and can be imported and tested with zero infrastructure.
+`app/core` never imports FastAPI or Pydantic. The deterministic engine
+(`core/engine.py`) is independent of the web framework. The assistant provider
+module intentionally owns the optional Anthropic SDK integration behind the
+same interface as the deterministic fallback.
 
 ## Requirements
 
@@ -68,6 +71,7 @@ environment this backend was originally built in.
 ```bash
 uvicorn app.main:app --reload
 ```
+
 Server starts at `http://localhost:8000`. CORS is pre-configured for a
 Vite dev server at `http://localhost:5173`.
 
@@ -79,8 +83,9 @@ Loads the workbook at `backend/data/Atlas_Fresh_Production_Commercial_Data.xlsx`
 (read-only — never modified), validates it, and if valid, runs the
 deterministic engine and returns the complete plan.
 
-- **200** — `{ dataHealth: "healthy", kpis, narrative, segmentVariances,
-  farmSegmentBalances, clientResults, allocations, localResidual }`
+- **200** — `{ dataHealth: "healthy", kpis, clientStatusSummary, narrative,
+segmentVariances, farmSummaries, farmSegmentBalances, clientResults,
+allocations, localResidual }`
 - **422** — `{ dataHealth: "invalid", validationErrors: [{ sheet, id, field, message }] }`
 - **500** — workbook missing, unreadable, or an unexpected server error
   (never returned as if it were a successful or "invalid data" result)
@@ -99,15 +104,14 @@ or `{ "freeText": "..." }`.
   unsupported question, a missing/invalid workbook, or a provider
   failure. Never returns a fabricated answer.
 
-Only `FallbackProvider` exists in this phase — a deterministic,
-dependency-free answer generator built directly from the same
-`PlanResult` the planning endpoint returns. `app/core/assistant/provider.py`
-defines the `AssistantProvider` interface so a real LLM-backed
-provider can be added later without touching `context.py`, `guard.py`,
-or the routes. Every cited farm/client ID is checked by
-`guard.ensure_grounded()` against the current `PlanResult` before
-being returned — unknown IDs are stripped, and an answer that cited
-only unknown IDs is rejected outright.
+`FallbackProvider` is the default, deterministic answer generator built
+directly from the same `PlanResult` the planning endpoint returns. When the
+optional Anthropic dependency and `ANTHROPIC_API_KEY` are available,
+`LLMProvider` answers broader plan questions through the same
+`AssistantProvider` interface. Every cited farm/client ID is checked by
+`guard.ensure_grounded()` against the current `PlanResult` before being
+returned. Any unknown ID in the citations or visible answer rejects the
+entire response.
 
 ## Deterministic engine boundary
 
@@ -118,30 +122,22 @@ values are comparison-only), clients processed price-descending with
 quality-upgrade-then-`farm_id` candidate ordering, 5-tonne allocation
 steps, a single global station-capacity constraint, and all remaining
 actual supply falling back to the local market. See `test_engine.py`
-for the six tests covering ordering, compatibility, the capacity hard
-limit, local-residual conservation, and full baseline reproduction.
+for tests covering ordering, compatibility, the capacity hard limit,
+local-residual conservation, canonical UI summaries, narrative correctness,
+and full baseline reproduction.
 
 ## Validation behavior
 
-`app/core/validation.py` checks IDs, modes, segments, the segment
-price table, mix-fraction sums, quantity granularity (5t multiples),
-and non-negativity — collecting every issue in one pass rather than
-failing on the first. Invalid input is never silently repaired; the
-engine never runs on invalid input. `local_market_ratio` is
+`app/core/validation.py` checks required IDs/names, finite numeric values,
+modes, segments, the segment price table, mix-fraction sums, quantity
+granularity (5t multiples), and non-negativity — collecting every issue in one
+pass rather than failing on the first. Invalid input is never silently repaired;
+the engine never runs on invalid input. `local_market_ratio` is
 intentionally **not** range-validated — it is trusted source
 configuration, used exactly as supplied.
 
-## Known limitation (this build environment)
+## Verification
 
-This backend was implemented in a sandboxed environment with no
-network access, so `fastapi`, `pydantic`, `uvicorn`, and `httpx` could
-not be installed there, and consequently `app/main.py`, `app/api/*.py`,
-and `tests/test_api.py` could not be executed or live-verified in that
-environment. They were written carefully against the documented
-Pydantic v2 / FastAPI API and against the already-verified engine
-output, but you should run `pytest -v` and `uvicorn app.main:app --reload`
-yourself as the first verification step after cloning. Everything in
-`app/core/` (including the assistant's context/guard/provider logic)
-**was** executed and verified in that environment, since it has no
-external dependencies beyond `openpyxl` and the Python standard
-library.
+Run `pytest -v` after installing the backend requirements. The engine and
+deterministic assistant tests do not make network calls; API tests should mock
+or disable the optional LLM provider.

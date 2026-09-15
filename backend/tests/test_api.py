@@ -21,9 +21,19 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.assistant.provider import FallbackProvider, ProviderResult
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def force_deterministic_assistant(monkeypatch):
+    """API tests must never depend on a developer's local API key."""
+    monkeypatch.setattr(
+        "app.api.assistant.get_default_provider",
+        lambda: FallbackProvider(),
+    )
 
 
 def test_get_plan_returns_healthy_baseline():
@@ -31,6 +41,17 @@ def test_get_plan_returns_healthy_baseline():
     assert response.status_code == 200
     body = response.json()
     assert body["dataHealth"] == "healthy"
+    assert body["clientStatusSummary"] == {
+        "clientCount": 10,
+        "completeCount": 7,
+        "partialCount": 3,
+        "unservedCount": 0,
+        "completePct": 70.0,
+        "partialPct": 30.0,
+        "unservedPct": 0.0,
+        "partialEndPct": 100.0,
+    }
+    assert body["farmSummaries"]
 
 
 def test_get_plan_baseline_kpi_values():
@@ -129,6 +150,28 @@ def test_assistant_unsupported_question_is_honest():
     assert "citedIds" not in body or body.get("citedIds") in (None, [])
 
 
+def test_assistant_rejects_answer_containing_any_unknown_id(monkeypatch):
+    class MixedCitationProvider:
+        def answer(self, **_kwargs):
+            return ProviderResult(
+                answer="C02 is grounded, but C999 was fabricated.",
+                cited_ids=["C02"],
+                source="llm",
+            )
+
+    monkeypatch.setattr(
+        "app.api.assistant.get_default_provider",
+        lambda: MixedCitationProvider(),
+    )
+
+    response = client.post("/api/assistant", json={"question": "at_risk_clients"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is False
+    assert body["reason"] == "invalid_output"
+    assert "C999" not in (body.get("fallbackAnswer") or "")
+
+
 def test_assistant_rejects_arbitrary_text_in_question_field():
     """`question` is a programmatic chip selector (Literal-typed), not
     a place for typed text — arbitrary strings there must be rejected
@@ -151,3 +194,21 @@ def test_assistant_rejects_both_question_and_free_text():
 def test_assistant_rejects_neither_field_present():
     response = client.post("/api/assistant", json={})
     assert response.status_code == 422
+
+
+def test_assistant_rejects_free_text_over_maximum_length():
+    response = client.post("/api/assistant", json={"freeText": "x" * 1001})
+    assert response.status_code == 422
+
+
+def test_openapi_documents_success_response_models():
+    schema = app.openapi()
+    plan_schema = schema["paths"]["/api/plan"]["get"]["responses"]["200"][
+        "content"
+    ]["application/json"]["schema"]
+    assistant_schema = schema["paths"]["/api/assistant"]["post"]["responses"][
+        "200"
+    ]["content"]["application/json"]["schema"]
+
+    assert plan_schema["$ref"].endswith("/PlanResultSchema")
+    assert len(assistant_schema["anyOf"]) == 2

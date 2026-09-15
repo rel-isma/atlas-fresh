@@ -15,7 +15,7 @@ A decision-support workspace for Atlas Fresh's daily Production–Commercial mee
 - `EXACT` accepts only the requested segment; `MINIMUM` accepts that segment or better (A > B > C > D).
 - Compatible supply ordered by smallest quality upgrade, then farm ID.
 - Allocation in 5 t steps until demand, supply, or the 500 t station capacity is exhausted.
-- Unexported tonnes go local at 10% of the segment's reference price.
+- Unexported tonnes go local at the configured market ratio (10% in the seed workbook) of the segment's reference price.
 - Client status `COMPLETE`/`PARTIAL`/`UNSERVED`, with reason `STATION_CAPACITY_REACHED` or `INSUFFICIENT_COMPATIBLE_SEGMENT` when not complete.
 
 Same input always produces the same output — no hidden state.
@@ -24,7 +24,7 @@ Same input always produces the same output — no hidden state.
 
 `Excel (read-only) -> loader -> validation -> deterministic engine -> FastAPI (camelCase JSON) -> React frontend (one fetch) -> Assistant (explains, never computes)`
 
-Backend: FastAPI + Pydantic, with the entire engine (`app/core/`) as pure Python — no FastAPI/DB/AI imports there, so it's testable in isolation and can't silently duplicate business logic. Frontend: Vite + React + TypeScript + Tailwind v4, one API call populates the whole app.
+Backend: FastAPI + Pydantic, with a framework-independent deterministic engine in `app/core/`; the assistant provider module intentionally contains the optional Anthropic adapter behind a deterministic fallback. Frontend: Vite + React + TypeScript + Tailwind v4, one API call populates the whole app.
 
 ## Frontend
 
@@ -37,12 +37,14 @@ Allocation traceability (farm, segment, client, tonnes, quality upgrade, revenue
 
 ## AI approach and guardrails
 
-Read-only explanation layer over the computed plan. Answers from a structured context built from the real result (not the raw workbook); every cited ID is checked against the plan and stripped/rejected if unresolvable. Without `ANTHROPIC_API_KEY` it falls back to a fully deterministic, template-based answer — same grounding, no model call — the default in this repo.
+Read-only explanation layer over the computed plan. Answers use structured context built from the real result (not the raw workbook); any unknown farm/client ID in a citation or visible answer rejects the response. Without `ANTHROPIC_API_KEY` it falls back to a fully deterministic, template-based answer — same grounding, no model call — the default in this repo.
 
-## Testing — 28 backend tests, all passing
+## Testing
 
 - `test_engine.py` — ordering, compatibility, capacity limit, local residual conservation, baseline reproduction, farm-level variance.
 - `test_assistant_core.py` — grounded citations, ID-guard rejection, honest handling of unsupported questions.
+- `test_validation.py` — required text, finite numeric values, and exact integer conversion.
+- `test_schemas.py` — request limits, XOR validation, nullable responses, and OpenAPI contracts.
 - `test_api.py` — HTTP boundary: healthy response, 422 on invalid data, assistant request validation.
 
 ## Prerequisites
@@ -68,6 +70,7 @@ cd frontend
 cp .env.example .env
 npm install && npm run dev      # http://localhost:5173
 ```
+
 No API key required for either to run fully.
 
 ## Assumptions & limitations

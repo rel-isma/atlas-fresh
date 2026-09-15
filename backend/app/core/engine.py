@@ -19,15 +19,19 @@ from .models import (
     Client,
     ClientResult,
     ClientStatus,
+    ClientStatusSummary,
     Farm,
     FarmSegmentBalance,
+    FarmSummary,
     Kpis,
     LocalResidualRow,
     Narrative,
     PlanResult,
     Segment,
+    SegmentVariance,
     ShortageReason,
     Station,
+    VarianceDirection,
 )
 from .narrative import build_local_residual_narrative, build_overview_narrative
 
@@ -72,9 +76,17 @@ def allocate(farms: list[Farm], clients: list[Client], station: Station) -> Plan
         )
 
     farm_segment_balances = _build_farm_segment_balances(farms, supply)
+    farm_summaries = _build_farm_summaries(farm_segment_balances)
     local_residual = _build_local_residual(supply, station)
     segment_variances = _build_segment_variances(farms)
-    kpis = _build_kpis(farms, client_results, allocations, local_residual, station)
+    client_status_summary = _build_client_status_summary(client_results)
+    kpis = _build_kpis(
+        farms,
+        client_status_summary,
+        allocations,
+        local_residual,
+        station,
+    )
 
     narrative = Narrative(
         overview=build_overview_narrative(kpis, segment_variances),
@@ -83,8 +95,10 @@ def allocate(farms: list[Farm], clients: list[Client], station: Station) -> Plan
 
     return PlanResult(
         kpis=kpis,
+        client_status_summary=client_status_summary,
         narrative=narrative,
         segment_variances=segment_variances,
+        farm_summaries=farm_summaries,
         farm_segment_balances=farm_segment_balances,
         client_results=client_results,
         allocations=allocations,
@@ -256,6 +270,7 @@ def _build_farm_segment_balances(
                 continue
             local_t = supply_after[(farm.farm_id, segment)]
             exported_t = actual_t - local_t
+            variance_t = actual_t - expected_t
             balances.append(
                 FarmSegmentBalance(
                     farm_id=farm.farm_id,
@@ -264,10 +279,47 @@ def _build_farm_segment_balances(
                     exported_t=exported_t,
                     local_t=local_t,
                     expected_t=expected_t,
-                    variance_t=actual_t - expected_t,
+                    variance_t=variance_t,
+                    variance_direction=_variance_direction(variance_t),
                 )
             )
     return balances
+
+
+def _variance_direction(variance_t: float) -> VarianceDirection:
+    if variance_t < 0:
+        return VarianceDirection.BELOW
+    if variance_t > 0:
+        return VarianceDirection.ABOVE
+    return VarianceDirection.ON_PLAN
+
+
+def _build_farm_summaries(
+    balances: list[FarmSegmentBalance],
+) -> list[FarmSummary]:
+    """Return canonical farm-level totals in the order used by the UI."""
+    by_farm: dict[str, list[FarmSegmentBalance]] = {}
+    for balance in balances:
+        by_farm.setdefault(balance.farm_id, []).append(balance)
+
+    summaries: list[FarmSummary] = []
+    for farm_id, farm_balances in by_farm.items():
+        expected_t = sum(row.expected_t for row in farm_balances)
+        actual_t = sum(row.actual_t for row in farm_balances)
+        local_t = sum(row.local_t for row in farm_balances)
+        variance_t = actual_t - expected_t
+        summaries.append(
+            FarmSummary(
+                farm_id=farm_id,
+                expected_t=expected_t,
+                actual_t=actual_t,
+                local_t=local_t,
+                variance_t=variance_t,
+                below_plan=variance_t < 0,
+            )
+        )
+
+    return sorted(summaries, key=lambda farm: farm.variance_t)
 
 
 # ----------------------------------------------------------------------
@@ -306,10 +358,8 @@ def _build_local_residual(
 # ----------------------------------------------------------------------
 
 
-def _build_segment_variances(farms: list[Farm]):
-    from .models import SegmentVariance
-
-    variances = []
+def _build_segment_variances(farms: list[Farm]) -> list[SegmentVariance]:
+    variances: list[SegmentVariance] = []
     for segment in SEGMENT_ORDER:
         expected_t = sum(f.expected_capacity_t * f.expected_mix[segment] for f in farms)
         actual_t = sum(f.actual[segment] for f in farms)
@@ -324,9 +374,38 @@ def _build_segment_variances(farms: list[Farm]):
 # ----------------------------------------------------------------------
 
 
+def _build_client_status_summary(
+    client_results: list[ClientResult],
+) -> ClientStatusSummary:
+    client_count = len(client_results)
+    complete_count = sum(
+        1 for client in client_results if client.status is ClientStatus.COMPLETE
+    )
+    partial_count = sum(
+        1 for client in client_results if client.status is ClientStatus.PARTIAL
+    )
+    unserved_count = sum(
+        1 for client in client_results if client.status is ClientStatus.UNSERVED
+    )
+
+    def percentage(count: int) -> float:
+        return (count / client_count) * 100 if client_count else 0.0
+
+    return ClientStatusSummary(
+        client_count=client_count,
+        complete_count=complete_count,
+        partial_count=partial_count,
+        unserved_count=unserved_count,
+        complete_pct=percentage(complete_count),
+        partial_pct=percentage(partial_count),
+        unserved_pct=percentage(unserved_count),
+        partial_end_pct=percentage(complete_count + partial_count),
+    )
+
+
 def _build_kpis(
     farms: list[Farm],
-    client_results: list[ClientResult],
+    client_status_summary: ClientStatusSummary,
     allocations: list[Allocation],
     local_residual: list[LocalResidualRow],
     station: Station,
@@ -340,14 +419,13 @@ def _build_kpis(
     local_volume_t = sum(r.tonnes_t for r in local_residual)
     export_revenue_eur = sum(a.revenue_eur for a in allocations)
     local_value_eur = sum(r.local_value_eur for r in local_residual)
-    at_risk_client_count = sum(1 for c in client_results if c.status != ClientStatus.COMPLETE)
-
     export_rate = (export_t / actual_received_t) if actual_received_t > 0 else None
 
     return Kpis(
         expected_plan_t=expected_plan_t,
         actual_received_t=actual_received_t,
         station_capacity_t=station.capacity_t,
+        local_market_ratio=station.local_market_ratio,
         actual_by_segment=actual_by_segment,
         export_t=export_t,
         export_rate=export_rate,
@@ -355,5 +433,8 @@ def _build_kpis(
         export_revenue_eur=export_revenue_eur,
         local_value_eur=local_value_eur,
         total_value_eur=export_revenue_eur + local_value_eur,
-        at_risk_client_count=at_risk_client_count,
+        at_risk_client_count=(
+            client_status_summary.partial_count
+            + client_status_summary.unserved_count
+        ),
     )

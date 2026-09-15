@@ -25,8 +25,12 @@ router = APIRouter()
 DATA_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "Atlas_Fresh_Production_Commercial_Data.xlsx"
 
 
-@router.get("/api/plan", response_model=None)
-def get_plan():
+@router.get(
+    "/api/plan",
+    response_model=PlanResultSchema,
+    responses={422: {"model": InvalidPlanResponse}},
+)
+def get_plan() -> JSONResponse:
     # 1. Locate + load the authoritative, read-only workbook.
     if not DATA_PATH.exists():
         # Infrastructure failure, not a business validation issue —
@@ -37,12 +41,22 @@ def get_plan():
 
     try:
         raw = load_workbook(DATA_PATH)
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to read the workbook")
-        raise HTTPException(status_code=500, detail="The planning workbook could not be read.")
+        raise HTTPException(
+            status_code=500,
+            detail="The planning workbook could not be read.",
+        ) from exc
 
     # 2. Validate. Never silently repair invalid data.
-    issues = validate(raw)
+    try:
+        issues = validate(raw)
+    except Exception as exc:
+        logger.exception("Failed to validate the planning workbook")
+        raise HTTPException(
+            status_code=500,
+            detail="The planning workbook could not be validated.",
+        ) from exc
     if issues:
         body = InvalidPlanResponse(
             validation_errors=[ValidationIssueSchema.from_domain(i) for i in issues],
@@ -56,14 +70,17 @@ def get_plan():
     try:
         farms, clients, station = to_domain(raw)
         plan_result = allocate(farms, clients, station)
-    except Exception:
+        body = PlanResultSchema.from_domain(plan_result)
+    except Exception as exc:
         # Should not happen if validation passed, but a server error
         # here must still surface honestly, never as fabricated data.
         logger.exception("Planning engine failed on validated input")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred while computing the plan.")
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred while computing the plan.",
+        ) from exc
 
     # 4. Serialize. Explicit by_alias=True so JSON is always camelCase
     # regardless of FastAPI/Pydantic version defaults for implicit
     # model return serialization.
-    body = PlanResultSchema.from_domain(plan_result)
     return JSONResponse(status_code=200, content=body.model_dump(by_alias=True))

@@ -80,7 +80,7 @@ class TestAssistantGuardRejectsUnknownIds(unittest.TestCase):
     does not genuinely exist in the current PlanResult. This is the
     mechanism, not just a policy statement."""
 
-    def test_unknown_id_is_stripped_not_shown(self):
+    def test_filter_helper_returns_only_known_ids(self):
         plan = _baseline_plan()
         valid = known_ids(plan)
         self.assertNotIn("C99", valid)
@@ -93,6 +93,20 @@ class TestAssistantGuardRejectsUnknownIds(unittest.TestCase):
         plan = _baseline_plan()
         with self.assertRaises(UngroundedAnswerError):
             ensure_grounded(["C99", "F99"], plan)
+
+    def test_any_unknown_id_in_visible_answer_rejects_entire_response(self):
+        plan = _baseline_plan()
+        with self.assertRaises(UngroundedAnswerError):
+            ensure_grounded(
+                ["C02"],
+                plan,
+                answer="C02 is at risk, and fabricated client C999 is also at risk.",
+            )
+
+    def test_visible_known_ids_are_included_in_grounded_citations(self):
+        plan = _baseline_plan()
+        grounded = ensure_grounded([], plan, answer="F15 supplied C02.")
+        self.assertEqual(grounded, ["F15", "C02"])
 
 
 class TestAssistantUnsupportedQuestion(unittest.TestCase):
@@ -138,6 +152,9 @@ class TestAssistantRelevanceGateAndFullContext(unittest.TestCase):
         self.assertIn("client_results", full)
         self.assertIn("allocations", full)
         self.assertIn("local_residual", full)
+        self.assertIn("client_status_summary", full)
+        self.assertIn("farm_summaries", full)
+        self.assertIn("narrative", full)
 
         # Spot-check it actually carries the real baseline values, not
         # placeholders.
@@ -146,6 +163,35 @@ class TestAssistantRelevanceGateAndFullContext(unittest.TestCase):
         client_ids = {c["client_id"] for c in full["client_results"]}
         self.assertEqual(len(client_ids), 10)
         self.assertIn("C02", client_ids)
+
+
+class TestAssistantMultiSegmentResidual(unittest.TestCase):
+    def test_farm_gap_answer_groups_residual_farms_by_segment(self):
+        plan = _baseline_plan()
+        context = {
+            "segment_variances": [
+                {
+                    "segment": "A",
+                    "expected_t": 10.0,
+                    "actual_t": 5.0,
+                    "variance_t": -5.0,
+                }
+            ],
+            "local_residual_farms": [
+                {"farm_id": "F01", "segment": "A", "tonnes_t": 5},
+                {"farm_id": "F02", "segment": "B", "tonnes_t": 5},
+            ],
+        }
+
+        result = FallbackProvider().answer(
+            question_key="farm_gaps",
+            question_text=None,
+            context=context,
+            plan=plan,
+        )
+
+        self.assertIn("Segment A: F01", result.answer)
+        self.assertIn("Segment B: F02", result.answer)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,11 @@ actual PlanResult before it is trusted.
 """
 from __future__ import annotations
 
+import re
+
 from ..models import PlanResult
+
+_PLAN_ID_PATTERN = re.compile(r"\b[CF]\d+\b")
 
 
 def known_ids(plan: PlanResult) -> set[str]:
@@ -20,26 +24,36 @@ def known_ids(plan: PlanResult) -> set[str]:
 
 
 def validate_cited_ids(cited_ids: list[str], plan: PlanResult) -> list[str]:
-    """Return only the cited IDs that are real. Unknown IDs are
-    dropped silently rather than raising, so a mostly-good answer with
-    one bad reference stays usable — but nothing fabricated is ever
-    shown."""
+    """Return only real cited IDs for callers that need a filtered view.
+
+    API responses use ``ensure_grounded`` instead, which is intentionally
+    strict and rejects the entire answer when any unknown ID is present.
+    """
     valid = known_ids(plan)
     return [cid for cid in cited_ids if cid in valid]
 
 
+def extract_referenced_ids(answer: str) -> list[str]:
+    """Extract farm/client identifiers mentioned in answer text."""
+    return list(dict.fromkeys(_PLAN_ID_PATTERN.findall(answer)))
+
+
 class UngroundedAnswerError(Exception):
-    """Raised when an answer cannot be trusted as grounded — e.g. it
-    claimed citations but every single one turned out to be unknown."""
+    """Raised when an answer references any unknown farm/client ID."""
 
 
-def ensure_grounded(cited_ids: list[str], plan: PlanResult) -> list[str]:
-    """Validate cited IDs; raise if the answer claimed citations but
-    none of them are real (a strong signal something is fabricated,
-    not just imprecise)."""
-    valid_cited = validate_cited_ids(cited_ids, plan)
-    if cited_ids and not valid_cited:
+def ensure_grounded(
+    cited_ids: list[str],
+    plan: PlanResult,
+    *,
+    answer: str = "",
+) -> list[str]:
+    """Reject an answer if any claimed or visible plan ID is unknown."""
+    claimed_ids = list(dict.fromkeys(cited_ids + extract_referenced_ids(answer)))
+    valid = known_ids(plan)
+    unknown_ids = [cid for cid in claimed_ids if cid not in valid]
+    if unknown_ids:
         raise UngroundedAnswerError(
-            "Answer cited only unknown IDs — rejecting rather than showing a fabricated reference."
+            f"Answer referenced unknown IDs: {', '.join(unknown_ids)}"
         )
-    return valid_cited
+    return claimed_ids

@@ -18,22 +18,18 @@ export function Commercial({ defaultFilter }: { defaultFilter?: string }) {
   const [open, setOpen] = useState<string | null>(null);
   if (!data) return null;
 
-  const counts = Object.fromEntries(
-    (["COMPLETE", "PARTIAL", "UNSERVED"] as const).map((status) => [
-      status,
-      data.clientResults.filter((client) => client.status === status).length,
-    ]),
-  ) as Record<ClientStatus, number>;
-  const atRiskCount = counts.PARTIAL + counts.UNSERVED;
-  const clients = data.clientResults
-    .filter((client) =>
-      filter === "ALL"
-        ? true
-        : filter === "AT_RISK"
-          ? client.status !== "COMPLETE"
-          : client.status === filter,
-    )
-    .sort((a, b) => b.priceEur - a.priceEur);
+  const counts: Record<ClientStatus, number> = {
+    COMPLETE: data.clientStatusSummary.completeCount,
+    PARTIAL: data.clientStatusSummary.partialCount,
+    UNSERVED: data.clientStatusSummary.unservedCount,
+  };
+  const clients = data.clientResults.filter((client) =>
+    filter === "ALL"
+      ? true
+      : filter === "AT_RISK"
+        ? client.status !== "COMPLETE"
+        : client.status === filter,
+  );
 
   return (
     <section className="space-y-5">
@@ -44,7 +40,7 @@ export function Commercial({ defaultFilter }: { defaultFilter?: string }) {
       <article className="overflow-hidden rounded-xl border border-atlas-line bg-white shadow-sm">
         <PanelHeader
           title="Client allocation results"
-          subtitle={`${clients.length} of ${data.clientResults.length} clients · sorted by price descending`}
+          subtitle={`${clients.length} of ${data.clientStatusSummary.clientCount} clients · sorted by price descending`}
           action={
             <div
               className="flex max-w-full items-center justify-end gap-1 overflow-x-auto"
@@ -54,13 +50,13 @@ export function Commercial({ defaultFilter }: { defaultFilter?: string }) {
                 active={filter === "ALL"}
                 onClick={() => setFilter("ALL")}
               >
-                All ({data.clientResults.length})
+                All ({data.clientStatusSummary.clientCount})
               </FilterChip>
               <FilterChip
                 active={filter === "AT_RISK"}
                 onClick={() => setFilter("AT_RISK")}
               >
-                At-risk ({atRiskCount})
+                At-risk ({data.kpis.atRiskCount})
               </FilterChip>
               {(["COMPLETE", "PARTIAL", "UNSERVED"] as const).map((status) => (
                 <FilterChip

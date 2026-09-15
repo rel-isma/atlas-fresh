@@ -1,4 +1,4 @@
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Inbox, PackageCheck } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import type { ReactNode } from "react";
 import type { PlanData } from "../api/types";
@@ -32,17 +32,21 @@ export function Overview({
   const { data } = usePlan();
   if (!data) return null;
 
-  const { kpis, clientResults, localResidual, segmentVariances } = data;
+  const {
+    kpis,
+    clientStatusSummary,
+    clientResults,
+    localResidual,
+    segmentVariances,
+  } = data;
   const risk = clientResults.filter((client) => client.status !== "COMPLETE");
-  const counts = (["COMPLETE", "PARTIAL", "UNSERVED"] as const).map(
-    (status) => ({
-      status,
-      count: clientResults.filter((client) => client.status === status).length,
-    }),
-  );
-  const clientCount = Math.max(clientResults.length, 1);
-  const complete = (counts[0].count / clientCount) * 100;
-  const partial = (counts[1].count / clientCount) * 100;
+  const counts = [
+    { status: "COMPLETE" as const, count: clientStatusSummary.completeCount },
+    { status: "PARTIAL" as const, count: clientStatusSummary.partialCount },
+    { status: "UNSERVED" as const, count: clientStatusSummary.unservedCount },
+  ];
+  const complete = clientStatusSummary.completePct;
+  const partialEnd = clientStatusSummary.partialEndPct;
 
   return (
     <section className="space-y-5">
@@ -99,17 +103,19 @@ export function Overview({
         <article className="overflow-hidden rounded-xl border border-atlas-line bg-white shadow-sm">
           <PanelHeader
             title="Client status"
-            subtitle={`${clientResults.length} export clients`}
+            subtitle={`${clientStatusSummary.clientCount} export clients`}
           />
           <div className="flex min-h-58 items-center justify-center gap-10">
             <div
               className="grid size-40 place-items-center rounded-full"
               style={{
-                background: `conic-gradient(#2A835F 0 ${complete}%, #B94A48 ${complete}% ${complete + partial}%, #092328 ${complete + partial}% 100%)`,
+                background: `conic-gradient(#2A835F 0 ${complete}%, #B94A48 ${complete}% ${partialEnd}%, #092328 ${partialEnd}% 100%)`,
               }}
             >
               <div className="grid size-27 place-content-center rounded-full bg-white text-center">
-                <strong className="text-2xl">{clientResults.length}</strong>
+                <strong className="text-2xl">
+                  {clientStatusSummary.clientCount}
+                </strong>
                 <span className="text-xs text-atlas-muted">clients</span>
               </div>
             </div>
@@ -136,39 +142,53 @@ export function Overview({
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <Preview
           title="At-risk clients"
-          subtitle={`${risk.length} require attention`}
+          subtitle={`${kpis.atRiskCount} require attention`}
           onClick={() => onNavigate("commercial", "risk")}
         >
-          <DataTable
-            headers={[
-              { label: "Client" },
-              { label: "Segment" },
-              { label: "Status" },
-              { label: "Remaining", align: "right" },
-            ]}
-          >
-            {risk.slice(0, 4).map((client) => (
-              <tr key={client.clientId}>
-                <td>
-                  <strong>{client.name}</strong>
-                  <span className="mt-1 block text-[10px] text-atlas-muted">
-                    {reasonLabel(client.reason)}
-                  </span>
-                </td>
-                <td>
-                  <span className="grid size-6 place-items-center rounded-md border border-atlas-line bg-atlas-sage/15 text-[11px] font-bold">
-                    {client.requestedSegment}
-                  </span>
-                </td>
-                <td>
-                  <StatusBadge status={client.status} />
-                </td>
-                <td className="text-right font-bold tabular-nums">
-                  {tonnes(client.remainingT)}
-                </td>
-              </tr>
-            ))}
-          </DataTable>
+          {risk.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
+              <span className="grid size-10 place-items-center rounded-xl bg-atlas-sage/20 text-atlas-green">
+                <PackageCheck className="size-5" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-atlas-deep">All clients fulfilled</p>
+                <p className="mt-1 max-w-52 text-xs leading-5 text-atlas-muted">
+                  Every client has been fully allocated in today's plan.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <DataTable
+              headers={[
+                { label: "Client" },
+                { label: "Segment" },
+                { label: "Status" },
+                { label: "Remaining", align: "right" },
+              ]}
+            >
+              {risk.slice(0, 4).map((client) => (
+                <tr key={client.clientId}>
+                  <td>
+                    <strong>{client.name}</strong>
+                    <span className="mt-1 block text-[10px] text-atlas-muted">
+                      {reasonLabel(client.reason)}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="grid size-6 place-items-center rounded-md border border-atlas-line bg-atlas-sage/15 text-[11px] font-bold">
+                      {client.requestedSegment}
+                    </span>
+                  </td>
+                  <td>
+                    <StatusBadge status={client.status} />
+                  </td>
+                  <td className="text-right font-bold tabular-nums">
+                    {tonnes(client.remainingT)}
+                  </td>
+                </tr>
+              ))}
+            </DataTable>
+          )}
         </Preview>
 
         <Preview
@@ -176,35 +196,49 @@ export function Overview({
           subtitle={`${localResidual.length} farm records`}
           onClick={() => onNavigate("local")}
         >
-          <DataTable
-            headers={[
-              { label: "Farm" },
-              { label: "Segment" },
-              { label: "Tonnes", align: "right" },
-              { label: "Reference", align: "right" },
-              { label: "Local value", align: "right" },
-            ]}
-          >
-            {localResidual.slice(0, 4).map((item) => (
-              <tr key={`${item.farmId}-${item.segment}`}>
-                <td className="font-bold">{item.farmId}</td>
-                <td>
-                  <span className="grid size-6 place-items-center rounded-md border border-atlas-line bg-atlas-sage/15 text-[11px] font-bold">
-                    {item.segment}
-                  </span>
-                </td>
-                <td className="text-right tabular-nums">
-                  {tonnes(item.tonnesT)}
-                </td>
-                <td className="text-right tabular-nums">
-                  {eur(item.referencePriceEur)}
-                </td>
-                <td className="text-right font-bold tabular-nums">
-                  {eur(item.localValueEur)}
-                </td>
-              </tr>
-            ))}
-          </DataTable>
+          {localResidual.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
+              <span className="grid size-10 place-items-center rounded-xl bg-atlas-sage/20 text-atlas-primary">
+                <Inbox className="size-5" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-atlas-deep">No local residual</p>
+                <p className="mt-1 max-w-56 text-xs leading-5 text-atlas-muted">
+                  All production was allocated to export clients.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <DataTable
+              headers={[
+                { label: "Farm" },
+                { label: "Segment" },
+                { label: "Tonnes", align: "right" },
+                { label: "Reference", align: "right" },
+                { label: "Local value", align: "right" },
+              ]}
+            >
+              {localResidual.slice(0, 4).map((item) => (
+                <tr key={`${item.farmId}-${item.segment}`}>
+                  <td className="font-bold">{item.farmId}</td>
+                  <td>
+                    <span className="grid size-6 place-items-center rounded-md border border-atlas-line bg-atlas-sage/15 text-[11px] font-bold">
+                      {item.segment}
+                    </span>
+                  </td>
+                  <td className="text-right tabular-nums">
+                    {tonnes(item.tonnesT)}
+                  </td>
+                  <td className="text-right tabular-nums">
+                    {eur(item.referencePriceEur)}
+                  </td>
+                  <td className="text-right font-bold tabular-nums">
+                    {eur(item.localValueEur)}
+                  </td>
+                </tr>
+              ))}
+            </DataTable>
+          )
         </Preview>
       </div>
     </section>

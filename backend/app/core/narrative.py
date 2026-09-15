@@ -27,7 +27,10 @@ def build_overview_narrative(kpis: Kpis, segment_variances: list[SegmentVariance
     )
 
 
-def build_local_residual_narrative(local_residual: list[LocalResidualRow], kpis: Kpis) -> str:
+def build_local_residual_narrative(
+    local_residual: list[LocalResidualRow],
+    kpis: Kpis,
+) -> str:
     if not local_residual:
         return "All actual production was exported today — no local-market residual."
 
@@ -39,9 +42,12 @@ def build_local_residual_narrative(local_residual: list[LocalResidualRow], kpis:
     else:
         segment_phrase = "Segments " + ", ".join(segments_involved)
 
+    local_ratio_pct = f"{kpis.local_market_ratio * 100:.2f}".rstrip("0").rstrip(".")
+
     return (
         f"{kpis.local_volume_t:.0f}t (€{kpis.local_value_eur:,.0f}) had no remaining compatible "
-        f"demand within station capacity and went to the local market at 10% of reference price. "
+        f"demand within station capacity and went to the local market at "
+        f"{local_ratio_pct}% of reference price. "
         f"This residual is entirely {segment_phrase}, from {len(farms_involved)} farm(s): "
         f"{', '.join(farms_involved)}."
     )

@@ -8,23 +8,96 @@ SDK, no I/O.
 """
 from __future__ import annotations
 
+from typing import Literal, TypedDict
+
 from ..models import ClientStatus, PlanResult
 
-SUPPORTED_QUESTIONS: tuple[str, ...] = ("at_risk_clients", "farm_gaps", "local_residual")
+QuestionKey = Literal["at_risk_clients", "farm_gaps", "local_residual"]
+
+
+class AtRiskClientItem(TypedDict):
+    client_id: str
+    name: str
+    status: str
+    reason: str | None
+    demand_t: int
+    allocated_t: int
+    remaining_t: int
+
+
+class AtRiskContext(TypedDict):
+    question: Literal["at_risk_clients"]
+    clients: list[AtRiskClientItem]
+    at_risk_count: int
+
+
+class SegmentVarianceItem(TypedDict):
+    segment: str
+    expected_t: float
+    actual_t: float
+    variance_t: float
+
+
+class ResidualFarmItem(TypedDict):
+    farm_id: str
+    segment: str
+    tonnes_t: int
+
+
+class FarmGapsContext(TypedDict):
+    question: Literal["farm_gaps"]
+    segment_variances: list[SegmentVarianceItem]
+    local_residual_farms: list[ResidualFarmItem]
+
+
+class LocalResidualItem(ResidualFarmItem):
+    reference_price_eur: int
+    local_price_eur: float
+    local_value_eur: float
+
+
+class LocalResidualContext(TypedDict):
+    question: Literal["local_residual"]
+    local_volume_t: int
+    local_value_eur: float
+    rows: list[LocalResidualItem]
+
+
+class FullPlanContext(TypedDict):
+    kpis: dict[str, object]
+    client_status_summary: dict[str, object]
+    narrative: dict[str, str]
+    segment_variances: list[dict[str, object]]
+    farm_segment_balances: list[dict[str, object]]
+    farm_summaries: list[dict[str, object]]
+    client_results: list[dict[str, object]]
+    allocations: list[dict[str, object]]
+    local_residual: list[dict[str, object]]
+
+
+AssistantContext = (
+    AtRiskContext | FarmGapsContext | LocalResidualContext | FullPlanContext
+)
+
+SUPPORTED_QUESTIONS: tuple[QuestionKey, ...] = (
+    "at_risk_clients",
+    "farm_gaps",
+    "local_residual",
+)
 
 # Small, honest keyword router for free-text input. This is NOT an NLP
 # classifier and must never be described as one — it is a minimal,
 # transparent mapping from a handful of expected words to the three
 # supported structured questions. Anything that doesn't match is
 # correctly treated as unsupported rather than guessed at.
-_FREE_TEXT_KEYWORDS: dict[str, tuple[str, ...]] = {
+_FREE_TEXT_KEYWORDS: dict[QuestionKey, tuple[str, ...]] = {
     "at_risk_clients": ("risk", "client", "partial", "unserved"),
     "farm_gaps": ("farm", "segment", "gap", "variance", "production"),
     "local_residual": ("local", "residual", "unexported"),
 }
 
 
-def resolve_question_key(free_text: str) -> str | None:
+def resolve_question_key(free_text: str) -> QuestionKey | None:
     """Map free text to one of the supported question keys, or None if
     no supported question can be identified. Deliberately simple and
     literal — no fabricated understanding of anything else."""
@@ -67,7 +140,7 @@ def is_plausibly_relevant(free_text: str) -> bool:
     return any(word in words for word in _DOMAIN_VOCABULARY)
 
 
-def build_full_context(plan: PlanResult) -> dict:
+def build_full_context(plan: PlanResult) -> FullPlanContext:
     """Serialize the ENTIRE PlanResult into a plain dict. Used only for
     a real LLM provider answering a free-text question that didn't
     match one of the three narrow buckets. Still pure, still no
@@ -86,6 +159,8 @@ def build_full_context(plan: PlanResult) -> dict:
             "expected_plan_t": k.expected_plan_t,
             "actual_received_t": k.actual_received_t,
             "station_capacity_t": k.station_capacity_t,
+            "station_utilization": k.station_utilization,
+            "local_market_ratio": k.local_market_ratio,
             "actual_by_segment": {seg.value: t for seg, t in k.actual_by_segment.items()},
             "export_t": k.export_t,
             "export_rate": k.export_rate,
@@ -95,13 +170,47 @@ def build_full_context(plan: PlanResult) -> dict:
             "total_value_eur": k.total_value_eur,
             "at_risk_client_count": k.at_risk_client_count,
         },
+        "client_status_summary": {
+            "client_count": plan.client_status_summary.client_count,
+            "complete_count": plan.client_status_summary.complete_count,
+            "partial_count": plan.client_status_summary.partial_count,
+            "unserved_count": plan.client_status_summary.unserved_count,
+            "complete_pct": plan.client_status_summary.complete_pct,
+            "partial_pct": plan.client_status_summary.partial_pct,
+            "unserved_pct": plan.client_status_summary.unserved_pct,
+            "partial_end_pct": plan.client_status_summary.partial_end_pct,
+        },
+        "narrative": {
+            "overview": plan.narrative.overview,
+            "local_residual": plan.narrative.local_residual,
+        },
         "segment_variances": [
             {"segment": v.segment.value, "expected_t": v.expected_t, "actual_t": v.actual_t, "variance_t": v.variance_t}
             for v in plan.segment_variances
         ],
         "farm_segment_balances": [
-            {"farm_id": b.farm_id, "segment": b.segment.value, "actual_t": b.actual_t, "exported_t": b.exported_t, "local_t": b.local_t}
+            {
+                "farm_id": b.farm_id,
+                "segment": b.segment.value,
+                "actual_t": b.actual_t,
+                "exported_t": b.exported_t,
+                "local_t": b.local_t,
+                "expected_t": b.expected_t,
+                "variance_t": b.variance_t,
+                "variance_direction": b.variance_direction.value,
+            }
             for b in plan.farm_segment_balances
+        ],
+        "farm_summaries": [
+            {
+                "farm_id": farm.farm_id,
+                "expected_t": farm.expected_t,
+                "actual_t": farm.actual_t,
+                "local_t": farm.local_t,
+                "variance_t": farm.variance_t,
+                "below_plan": farm.below_plan,
+            }
+            for farm in plan.farm_summaries
         ],
         "client_results": [
             {
@@ -115,6 +224,7 @@ def build_full_context(plan: PlanResult) -> dict:
                 "remaining_t": c.remaining_t,
                 "status": c.status.value,
                 "reason": c.reason.value if c.reason else None,
+                "revenue_eur": c.revenue_eur,
             }
             for c in plan.client_results
         ],
@@ -125,18 +235,28 @@ def build_full_context(plan: PlanResult) -> dict:
                 "client_id": a.client_id,
                 "tonnes": a.tonnes,
                 "quality_upgrade": a.quality_upgrade,
+                "unit_price_eur": a.unit_price_eur,
                 "revenue_eur": a.revenue_eur,
             }
             for a in plan.allocations
         ],
         "local_residual": [
-            {"farm_id": r.farm_id, "segment": r.segment.value, "tonnes_t": r.tonnes_t, "local_value_eur": r.local_value_eur}
+            {
+                "farm_id": r.farm_id,
+                "segment": r.segment.value,
+                "tonnes_t": r.tonnes_t,
+                "reference_price_eur": r.reference_price_eur,
+                "local_price_eur": r.local_price_eur,
+                "local_value_eur": r.local_value_eur,
+            }
             for r in plan.local_residual
         ],
     }
 
 
-def build_context(plan: PlanResult, question_key: str) -> dict:
+def build_context(
+    plan: PlanResult, question_key: QuestionKey
+) -> AtRiskContext | FarmGapsContext | LocalResidualContext:
     if question_key == "at_risk_clients":
         return _at_risk_clients_context(plan)
     if question_key == "farm_gaps":
@@ -146,7 +266,7 @@ def build_context(plan: PlanResult, question_key: str) -> dict:
     raise ValueError(f"Unsupported question key: {question_key!r}")
 
 
-def _at_risk_clients_context(plan: PlanResult) -> dict:
+def _at_risk_clients_context(plan: PlanResult) -> AtRiskContext:
     at_risk = [c for c in plan.client_results if c.status != ClientStatus.COMPLETE]
     return {
         "question": "at_risk_clients",
@@ -166,7 +286,7 @@ def _at_risk_clients_context(plan: PlanResult) -> dict:
     }
 
 
-def _farm_gaps_context(plan: PlanResult) -> dict:
+def _farm_gaps_context(plan: PlanResult) -> FarmGapsContext:
     # Most-negative variance first — the segment furthest below plan.
     variances = sorted(plan.segment_variances, key=lambda v: v.variance_t)
     return {
@@ -190,7 +310,7 @@ def _farm_gaps_context(plan: PlanResult) -> dict:
     }
 
 
-def _local_residual_context(plan: PlanResult) -> dict:
+def _local_residual_context(plan: PlanResult) -> LocalResidualContext:
     return {
         "question": "local_residual",
         "local_volume_t": plan.kpis.local_volume_t,

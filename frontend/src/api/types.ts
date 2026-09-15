@@ -1,12 +1,15 @@
 export type ClientMode = "EXACT" | "MINIMUM";
+export type Segment = "A" | "B" | "C" | "D";
 export type ClientStatus = "COMPLETE" | "PARTIAL" | "UNSERVED";
 export type ClientReason =
   "STATION_CAPACITY_REACHED" | "INSUFFICIENT_COMPATIBLE_SEGMENT" | null;
+export type VarianceDirection = "BELOW" | "ON_PLAN" | "ABOVE";
 
 export interface PlanKpis {
   expectedPlanT: number;
   actualReceivedT: number;
   stationCapacityT: number;
+  localMarketRatio: number;
   actualBySegment: { A: number; B: number; C: number; D: number };
   exportT: number;
   exportRate: number | null;
@@ -18,30 +21,51 @@ export interface PlanKpis {
   atRiskCount: number;
 }
 
+export interface ClientStatusSummary {
+  clientCount: number;
+  completeCount: number;
+  partialCount: number;
+  unservedCount: number;
+  completePct: number;
+  partialPct: number;
+  unservedPct: number;
+  partialEndPct: number;
+}
+
 export interface PlanData {
   dataHealth: "healthy";
   kpis: PlanKpis;
+  clientStatusSummary: ClientStatusSummary;
   narrative: { overview: string; localResidual: string };
   segmentVariances: Array<{
-    segment: string;
+    segment: Segment;
     expectedT: number;
     actualT: number;
     varianceT: number;
   }>;
   farmSegmentBalances: Array<{
     farmId: string;
-    segment: string;
+    segment: Segment;
     actualT: number;
     exportedT: number;
     localT: number;
     expectedT: number;
     varianceT: number;
+    varianceDirection: VarianceDirection;
+  }>;
+  farmSummaries: Array<{
+    farmId: string;
+    expectedT: number;
+    actualT: number;
+    localT: number;
+    varianceT: number;
+    belowPlan: boolean;
   }>;
   clientResults: Array<{
     clientId: string;
     name: string;
     mode: ClientMode;
-    requestedSegment: string;
+    requestedSegment: Segment;
     priceEur: number;
     demandT: number;
     allocatedT: number;
@@ -52,7 +76,7 @@ export interface PlanData {
   }>;
   allocations: Array<{
     farmId: string;
-    segment: string;
+    segment: Segment;
     clientId: string;
     tonnes: number;
     qualityUpgrade: number;
@@ -61,7 +85,7 @@ export interface PlanData {
   }>;
   localResidual: Array<{
     farmId: string;
-    segment: string;
+    segment: Segment;
     tonnesT: number;
     referencePriceEur: number;
     localPriceEur: number;
@@ -82,7 +106,8 @@ export interface InvalidPlanResponse {
 export type AssistantQuestion =
   "at_risk_clients" | "farm_gaps" | "local_residual";
 export type AssistantRequest =
-  { question: AssistantQuestion } | { freeText: string };
+  | { question: AssistantQuestion; freeText?: never }
+  | { freeText: string; question?: never };
 export type AssistantResponse =
   | {
       available: true;
@@ -94,5 +119,5 @@ export type AssistantResponse =
       available: false;
       reason: string;
       source: "fallback";
-      fallbackAnswer?: string;
+      fallbackAnswer: string | null;
     };

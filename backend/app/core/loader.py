@@ -49,6 +49,7 @@ SEGMENT_PRICE_HEADER = ("segment", "reference_export_price_per_t_eur")
 # the Station sheet sits well below the station row, so this must be
 # generous rather than assuming a fixed offset.
 HEADER_SCAN_WINDOW = 25
+RawRow = dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -66,14 +67,16 @@ class LoaderIssue:
 
 @dataclass(frozen=True)
 class RawWorkbook:
-    farms: list[dict]
-    clients: list[dict]
-    station: dict | None
+    farms: list[RawRow]
+    clients: list[RawRow]
+    station: RawRow | None
     segment_prices: dict[str, object]  # segment letter -> raw price value
     loader_issues: list[LoaderIssue]
 
 
-def _find_header_row(rows: list[tuple], header: tuple[str, ...]) -> int | None:
+def _find_header_row(
+    rows: list[tuple[object, ...]], header: tuple[str, ...]
+) -> int | None:
     """Return the 0-based index of the row matching `header` on its
     leading cells, or None if not found within the scan window."""
     n = len(header)
@@ -83,9 +86,13 @@ def _find_header_row(rows: list[tuple], header: tuple[str, ...]) -> int | None:
     return None
 
 
-def _read_rows_after_header(rows: list[tuple], header_idx: int, header: tuple[str, ...]) -> list[dict]:
+def _read_rows_after_header(
+    rows: list[tuple[object, ...]],
+    header_idx: int,
+    header: tuple[str, ...],
+) -> list[RawRow]:
     """Read every row after the header until the first fully-blank row."""
-    out: list[dict] = []
+    out: list[RawRow] = []
     for row in rows[header_idx + 1 :]:
         values = [row[i] if i < len(row) else None for i in range(len(header))]
         if all(v is None for v in values):
@@ -107,9 +114,9 @@ def load_workbook(path: str | Path) -> RawWorkbook:
             if name not in wb.sheetnames:
                 issues.append(LoaderIssue(sheet=name, message=f"Sheet '{name}' is missing from the workbook"))
 
-        farms: list[dict] = []
-        clients: list[dict] = []
-        station: dict | None = None
+        farms: list[RawRow] = []
+        clients: list[RawRow] = []
+        station: RawRow | None = None
         segment_prices: dict[str, object] = {}
 
         if "Farms" in wb.sheetnames:

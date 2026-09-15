@@ -11,7 +11,10 @@ does the input imply?" — that is the engine's job (engine.py).
 """
 from __future__ import annotations
 
+import math
+import re
 from dataclasses import dataclass
+from typing import TypeGuard
 
 from .loader import RawWorkbook
 from .models import AcceptanceMode, Client, Farm, Segment, Station
@@ -19,6 +22,8 @@ from .models import AcceptanceMode, Client, Farm, Segment, Station
 TOLERANCE = 1e-6
 VALID_SEGMENTS = {"A", "B", "C", "D"}
 VALID_MODES = {"EXACT", "MINIMUM"}
+FARM_ID_PATTERN = re.compile(r"F\d+")
+CLIENT_ID_PATTERN = re.compile(r"C\d+")
 
 
 @dataclass(frozen=True)
@@ -29,12 +34,30 @@ class ValidationIssue:
     message: str
 
 
-def _is_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+def _is_number(value: object) -> TypeGuard[int | float]:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, float) and math.isfinite(value)
 
 
-def _is_multiple_of_5(value: float) -> bool:
-    return abs(round(value / 5) * 5 - value) <= TOLERANCE
+def _is_integer(value: object) -> TypeGuard[int | float]:
+    if not _is_number(value):
+        return False
+    return isinstance(value, int) or value.is_integer()
+
+
+def _is_multiple_of_5(value: object) -> bool:
+    return _is_integer(value) and int(value) % 5 == 0
+
+
+def _is_required_text(value: object) -> TypeGuard[str]:
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and value == value.strip()
+    )
 
 
 def validate(raw: RawWorkbook) -> list[ValidationIssue]:
@@ -72,13 +95,13 @@ def _validate_segment_prices(raw: RawWorkbook) -> list[ValidationIssue]:
                     message=f"Missing segment reference price for segment {seg}",
                 )
             )
-        elif not _is_number(price) or price <= 0:
+        elif not _is_integer(price) or price <= 0:
             issues.append(
                 ValidationIssue(
                     sheet="Station",
                     id=None,
                     field="reference_export_price_per_t_eur",
-                    message=f"Segment {seg} reference price must be a positive number, found {price!r}",
+                    message=f"Segment {seg} reference price must be a positive integer, found {price!r}",
                 )
             )
     return issues
@@ -92,39 +115,68 @@ def _validate_farms(raw: RawWorkbook) -> list[ValidationIssue]:
 
     for row in raw.farms:
         farm_id = row.get("farm_id")
-        if not farm_id:
-            issues.append(ValidationIssue(sheet="Farms", id=None, field="farm_id", message="Missing farm_id"))
-            continue
-        if farm_id in seen_ids:
-            issues.append(ValidationIssue(sheet="Farms", id=farm_id, field="farm_id", message=f"Duplicate farm_id '{farm_id}'"))
-        seen_ids.add(farm_id)
+        valid_farm_id = farm_id if _is_required_text(farm_id) else None
+        if valid_farm_id is None:
+            issues.append(
+                ValidationIssue(
+                    sheet="Farms",
+                    id=None,
+                    field="farm_id",
+                    message="farm_id must be non-empty text without leading or trailing whitespace",
+                )
+            )
+        else:
+            if FARM_ID_PATTERN.fullmatch(valid_farm_id) is None:
+                issues.append(
+                    ValidationIssue(
+                        sheet="Farms",
+                        id=valid_farm_id,
+                        field="farm_id",
+                        message="farm_id must use the format F followed by digits",
+                    )
+                )
+            if valid_farm_id in seen_ids:
+                issues.append(ValidationIssue(sheet="Farms", id=valid_farm_id, field="farm_id", message=f"Duplicate farm_id '{valid_farm_id}'"))
+            seen_ids.add(valid_farm_id)
+
+        issue_id = valid_farm_id
+        name = row.get("farm_name")
+        if not _is_required_text(name):
+            issues.append(
+                ValidationIssue(
+                    sheet="Farms",
+                    id=issue_id,
+                    field="farm_name",
+                    message="Farm name must be non-empty text without leading or trailing whitespace",
+                )
+            )
 
         cap = row.get("expected_daily_capacity_t")
         if not _is_number(cap):
-            issues.append(ValidationIssue(sheet="Farms", id=farm_id, field="expected_daily_capacity_t", message=f"Expected daily capacity must be a number, found {cap!r}"))
+            issues.append(ValidationIssue(sheet="Farms", id=issue_id, field="expected_daily_capacity_t", message=f"Expected daily capacity must be a finite number, found {cap!r}"))
         elif cap < 0:
-            issues.append(ValidationIssue(sheet="Farms", id=farm_id, field="expected_daily_capacity_t", message=f"Expected daily capacity must be non-negative, found {cap}"))
+            issues.append(ValidationIssue(sheet="Farms", id=issue_id, field="expected_daily_capacity_t", message=f"Expected daily capacity must be non-negative, found {cap}"))
 
         mix_sum = 0.0
         mix_ok = True
         for field in mix_fields:
             val = row.get(field)
             if not _is_number(val):
-                issues.append(ValidationIssue(sheet="Farms", id=farm_id, field=field, message=f"Mix value must be a number, found {val!r}"))
+                issues.append(ValidationIssue(sheet="Farms", id=issue_id, field=field, message=f"Mix value must be a finite number, found {val!r}"))
                 mix_ok = False
                 continue
             if val < 0 - TOLERANCE or val > 1 + TOLERANCE:
-                issues.append(ValidationIssue(sheet="Farms", id=farm_id, field=field, message=f"Mix value must be between 0 and 1, found {val}"))
+                issues.append(ValidationIssue(sheet="Farms", id=issue_id, field=field, message=f"Mix value must be between 0 and 1, found {val}"))
                 mix_ok = False
             mix_sum += val
         if mix_ok and abs(mix_sum - 1.0) > TOLERANCE:
             issues.append(
                 ValidationIssue(
                     sheet="Farms",
-                    id=farm_id,
+                    id=issue_id,
                     field=mix_fields[-1],
                     message=(
-                        f"Expected mix for farm {farm_id} sums to {mix_sum:.2f}, not 1.0 "
+                        f"Expected mix for farm {issue_id or '<invalid ID>'} sums to {mix_sum:.2f}, not 1.0 "
                         f"(A={row.get('expected_A_pct')}, B={row.get('expected_B_pct')}, "
                         f"C={row.get('expected_C_pct')}, D={row.get('expected_D_pct')})"
                     ),
@@ -133,13 +185,13 @@ def _validate_farms(raw: RawWorkbook) -> list[ValidationIssue]:
 
         for field in actual_fields:
             val = row.get(field)
-            if not _is_number(val):
-                issues.append(ValidationIssue(sheet="Farms", id=farm_id, field=field, message=f"Actual tonnage must be a number, found {val!r}"))
+            if not _is_integer(val):
+                issues.append(ValidationIssue(sheet="Farms", id=issue_id, field=field, message=f"Actual tonnage must be a finite integer, found {val!r}"))
                 continue
             if val < 0:
-                issues.append(ValidationIssue(sheet="Farms", id=farm_id, field=field, message=f"Actual tonnage must be non-negative, found {val}"))
+                issues.append(ValidationIssue(sheet="Farms", id=issue_id, field=field, message=f"Actual tonnage must be non-negative, found {val}"))
             elif not _is_multiple_of_5(val):
-                issues.append(ValidationIssue(sheet="Farms", id=farm_id, field=field, message=f"Actual tonnage must be a multiple of 5 t, found {val}"))
+                issues.append(ValidationIssue(sheet="Farms", id=issue_id, field=field, message=f"Actual tonnage must be a multiple of 5 t, found {val}"))
 
     return issues
 
@@ -150,34 +202,63 @@ def _validate_clients(raw: RawWorkbook) -> list[ValidationIssue]:
 
     for row in raw.clients:
         client_id = row.get("client_id")
-        if not client_id:
-            issues.append(ValidationIssue(sheet="Clients", id=None, field="client_id", message="Missing client_id"))
-            continue
-        if client_id in seen_ids:
-            issues.append(ValidationIssue(sheet="Clients", id=client_id, field="client_id", message=f"Duplicate client_id '{client_id}'"))
-        seen_ids.add(client_id)
+        valid_client_id = client_id if _is_required_text(client_id) else None
+        if valid_client_id is None:
+            issues.append(
+                ValidationIssue(
+                    sheet="Clients",
+                    id=None,
+                    field="client_id",
+                    message="client_id must be non-empty text without leading or trailing whitespace",
+                )
+            )
+        else:
+            if CLIENT_ID_PATTERN.fullmatch(valid_client_id) is None:
+                issues.append(
+                    ValidationIssue(
+                        sheet="Clients",
+                        id=valid_client_id,
+                        field="client_id",
+                        message="client_id must use the format C followed by digits",
+                    )
+                )
+            if valid_client_id in seen_ids:
+                issues.append(ValidationIssue(sheet="Clients", id=valid_client_id, field="client_id", message=f"Duplicate client_id '{valid_client_id}'"))
+            seen_ids.add(valid_client_id)
+
+        issue_id = valid_client_id
+        name = row.get("client_name")
+        if not _is_required_text(name):
+            issues.append(
+                ValidationIssue(
+                    sheet="Clients",
+                    id=issue_id,
+                    field="client_name",
+                    message="Client name must be non-empty text without leading or trailing whitespace",
+                )
+            )
 
         mode = row.get("acceptance_mode")
-        if mode not in VALID_MODES:
-            issues.append(ValidationIssue(sheet="Clients", id=client_id, field="acceptance_mode", message=f"Acceptance mode {mode!r} is not valid — expected EXACT or MINIMUM"))
+        if not isinstance(mode, str) or mode not in VALID_MODES:
+            issues.append(ValidationIssue(sheet="Clients", id=issue_id, field="acceptance_mode", message=f"Acceptance mode {mode!r} is not valid — expected EXACT or MINIMUM"))
 
         segment = row.get("requested_segment")
-        if segment not in VALID_SEGMENTS:
-            issues.append(ValidationIssue(sheet="Clients", id=client_id, field="requested_segment", message=f"Requested segment {segment!r} is not valid — expected A, B, C or D"))
+        if not isinstance(segment, str) or segment not in VALID_SEGMENTS:
+            issues.append(ValidationIssue(sheet="Clients", id=issue_id, field="requested_segment", message=f"Requested segment {segment!r} is not valid — expected A, B, C or D"))
 
         demand = row.get("demand_t")
-        if not _is_number(demand):
-            issues.append(ValidationIssue(sheet="Clients", id=client_id, field="demand_t", message=f"Demand must be a number, found {demand!r}"))
+        if not _is_integer(demand):
+            issues.append(ValidationIssue(sheet="Clients", id=issue_id, field="demand_t", message=f"Demand must be a finite integer, found {demand!r}"))
         elif demand < 0:
-            issues.append(ValidationIssue(sheet="Clients", id=client_id, field="demand_t", message=f"Demand must be non-negative, found {demand}"))
+            issues.append(ValidationIssue(sheet="Clients", id=issue_id, field="demand_t", message=f"Demand must be non-negative, found {demand}"))
         elif not _is_multiple_of_5(demand):
-            issues.append(ValidationIssue(sheet="Clients", id=client_id, field="demand_t", message=f"Demand must be a multiple of 5 t, found {demand}"))
+            issues.append(ValidationIssue(sheet="Clients", id=issue_id, field="demand_t", message=f"Demand must be a multiple of 5 t, found {demand}"))
 
         price = row.get("export_price_per_t_eur")
-        if not _is_number(price):
-            issues.append(ValidationIssue(sheet="Clients", id=client_id, field="export_price_per_t_eur", message=f"Export price must be a number, found {price!r}"))
+        if not _is_integer(price):
+            issues.append(ValidationIssue(sheet="Clients", id=issue_id, field="export_price_per_t_eur", message=f"Export price must be a finite integer, found {price!r}"))
         elif price < 0:
-            issues.append(ValidationIssue(sheet="Clients", id=client_id, field="export_price_per_t_eur", message=f"Export price must be non-negative, found {price}"))
+            issues.append(ValidationIssue(sheet="Clients", id=issue_id, field="export_price_per_t_eur", message=f"Export price must be non-negative, found {price}"))
 
     return issues
 
@@ -190,16 +271,17 @@ def _validate_station(raw: RawWorkbook) -> list[ValidationIssue]:
         return issues
 
     station_id = row.get("station_id")
-    if not station_id:
-        issues.append(ValidationIssue(sheet="Station", id=None, field="station_id", message="Missing station_id"))
+    valid_station_id = station_id if _is_required_text(station_id) else None
+    if valid_station_id is None:
+        issues.append(ValidationIssue(sheet="Station", id=None, field="station_id", message="station_id must be non-empty text without leading or trailing whitespace"))
 
     capacity = row.get("export_conditioning_capacity_t")
-    if not _is_number(capacity):
-        issues.append(ValidationIssue(sheet="Station", id=station_id, field="export_conditioning_capacity_t", message=f"Station capacity must be a number, found {capacity!r}"))
+    if not _is_integer(capacity):
+        issues.append(ValidationIssue(sheet="Station", id=valid_station_id, field="export_conditioning_capacity_t", message=f"Station capacity must be a finite integer, found {capacity!r}"))
     elif capacity < 0:
-        issues.append(ValidationIssue(sheet="Station", id=station_id, field="export_conditioning_capacity_t", message=f"Station capacity must be non-negative, found {capacity}"))
+        issues.append(ValidationIssue(sheet="Station", id=valid_station_id, field="export_conditioning_capacity_t", message=f"Station capacity must be non-negative, found {capacity}"))
     elif not _is_multiple_of_5(capacity):
-        issues.append(ValidationIssue(sheet="Station", id=station_id, field="export_conditioning_capacity_t", message=f"Station capacity must be a multiple of 5 t, found {capacity}"))
+        issues.append(ValidationIssue(sheet="Station", id=valid_station_id, field="export_conditioning_capacity_t", message=f"Station capacity must be a multiple of 5 t, found {capacity}"))
 
     # local_market_ratio is intentionally NOT validated for range — per
     # explicit decision, it is trusted source configuration, used as
@@ -207,7 +289,7 @@ def _validate_station(raw: RawWorkbook) -> list[ValidationIssue]:
     # arithmetic doesn't crash.
     ratio = row.get("local_market_ratio")
     if not _is_number(ratio):
-        issues.append(ValidationIssue(sheet="Station", id=station_id, field="local_market_ratio", message=f"Local market ratio must be a number, found {ratio!r}"))
+        issues.append(ValidationIssue(sheet="Station", id=valid_station_id, field="local_market_ratio", message=f"Local market ratio must be a finite number, found {ratio!r}"))
 
     return issues
 
@@ -230,10 +312,10 @@ def to_domain(raw: RawWorkbook) -> tuple[list[Farm], list[Client], Station]:
                 Segment.D: float(row["expected_D_pct"]),
             },
             actual={
-                Segment.A: round(row["actual_A_t"]),
-                Segment.B: round(row["actual_B_t"]),
-                Segment.C: round(row["actual_C_t"]),
-                Segment.D: round(row["actual_D_t"]),
+                Segment.A: int(row["actual_A_t"]),
+                Segment.B: int(row["actual_B_t"]),
+                Segment.C: int(row["actual_C_t"]),
+                Segment.D: int(row["actual_D_t"]),
             },
         )
         for row in raw.farms
@@ -245,8 +327,8 @@ def to_domain(raw: RawWorkbook) -> tuple[list[Farm], list[Client], Station]:
             name=row["client_name"],
             mode=AcceptanceMode(row["acceptance_mode"]),
             requested_segment=Segment(row["requested_segment"]),
-            demand_t=round(row["demand_t"]),
-            price_eur=round(row["export_price_per_t_eur"]),
+            demand_t=int(row["demand_t"]),
+            price_eur=int(row["export_price_per_t_eur"]),
         )
         for row in raw.clients
     ]
@@ -254,10 +336,10 @@ def to_domain(raw: RawWorkbook) -> tuple[list[Farm], list[Client], Station]:
     station_row = raw.station
     station = Station(
         station_id=station_row["station_id"],
-        capacity_t=round(station_row["export_conditioning_capacity_t"]),
+        capacity_t=int(station_row["export_conditioning_capacity_t"]),
         local_market_ratio=float(station_row["local_market_ratio"]),
         reference_prices={
-            Segment(seg): round(price) for seg, price in raw.segment_prices.items()
+            Segment(seg): int(price) for seg, price in raw.segment_prices.items()
         },
     )
 

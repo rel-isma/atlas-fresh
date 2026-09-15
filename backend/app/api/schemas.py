@@ -13,15 +13,17 @@ so every mapping is visible and reviewable in one place.
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
 
 from ..core.loader import LoaderIssue
 from ..core.models import (
     Allocation,
     ClientResult,
+    ClientStatusSummary,
     FarmSegmentBalance,
+    FarmSummary,
     Kpis,
     LocalResidualRow,
     Narrative,
@@ -37,7 +39,20 @@ def _to_camel(snake: str) -> str:
 
 
 class CamelModel(BaseModel):
-    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=_to_camel,
+        populate_by_name=True,
+        extra="forbid",
+    )
+
+
+SegmentValue = Literal["A", "B", "C", "D"]
+ClientModeValue = Literal["EXACT", "MINIMUM"]
+ClientStatusValue = Literal["COMPLETE", "PARTIAL", "UNSERVED"]
+ShortageReasonValue = Literal[
+    "STATION_CAPACITY_REACHED", "INSUFFICIENT_COMPATIBLE_SEGMENT"
+]
+VarianceDirectionValue = Literal["BELOW", "ON_PLAN", "ABOVE"]
 
 
 # ----------------------------------------------------------------------
@@ -62,7 +77,7 @@ class ValidationIssueSchema(CamelModel):
 
 
 class InvalidPlanResponse(CamelModel):
-    data_health: str = "invalid"
+    data_health: Literal["invalid"] = "invalid"
     validation_errors: list[ValidationIssueSchema]
 
 
@@ -75,7 +90,8 @@ class KpisSchema(CamelModel):
     expected_plan_t: float
     actual_received_t: float
     station_capacity_t: int
-    actual_by_segment: dict[str, int]
+    local_market_ratio: float
+    actual_by_segment: dict[SegmentValue, int]
     export_t: int
     export_rate: float | None
     station_utilization: float | None
@@ -91,6 +107,7 @@ class KpisSchema(CamelModel):
             expected_plan_t=k.expected_plan_t,
             actual_received_t=k.actual_received_t,
             station_capacity_t=k.station_capacity_t,
+            local_market_ratio=k.local_market_ratio,
             actual_by_segment={seg.value: t for seg, t in k.actual_by_segment.items()},
             export_t=k.export_t,
             export_rate=k.export_rate,
@@ -100,6 +117,32 @@ class KpisSchema(CamelModel):
             local_value_eur=k.local_value_eur,
             total_value_eur=k.total_value_eur,
             at_risk_count=k.at_risk_client_count,
+        )
+
+
+class ClientStatusSummarySchema(CamelModel):
+    client_count: int
+    complete_count: int
+    partial_count: int
+    unserved_count: int
+    complete_pct: float
+    partial_pct: float
+    unserved_pct: float
+    partial_end_pct: float
+
+    @classmethod
+    def from_domain(
+        cls, summary: ClientStatusSummary
+    ) -> "ClientStatusSummarySchema":
+        return cls(
+            client_count=summary.client_count,
+            complete_count=summary.complete_count,
+            partial_count=summary.partial_count,
+            unserved_count=summary.unserved_count,
+            complete_pct=summary.complete_pct,
+            partial_pct=summary.partial_pct,
+            unserved_pct=summary.unserved_pct,
+            partial_end_pct=summary.partial_end_pct,
         )
 
 
@@ -113,7 +156,7 @@ class NarrativeSchema(CamelModel):
 
 
 class SegmentVarianceSchema(CamelModel):
-    segment: str
+    segment: SegmentValue
     expected_t: float
     actual_t: float
     variance_t: float
@@ -125,12 +168,13 @@ class SegmentVarianceSchema(CamelModel):
 
 class FarmSegmentBalanceSchema(CamelModel):
     farm_id: str
-    segment: str
+    segment: SegmentValue
     actual_t: int
     exported_t: int
     local_t: int
     expected_t: float
     variance_t: float
+    variance_direction: VarianceDirectionValue
 
     @classmethod
     def from_domain(cls, b: FarmSegmentBalance) -> "FarmSegmentBalanceSchema":
@@ -142,20 +186,41 @@ class FarmSegmentBalanceSchema(CamelModel):
             local_t=b.local_t,
             expected_t=b.expected_t,
             variance_t=b.variance_t,
+            variance_direction=b.variance_direction.value,
+        )
+
+
+class FarmSummarySchema(CamelModel):
+    farm_id: str
+    expected_t: float
+    actual_t: int
+    local_t: int
+    variance_t: float
+    below_plan: bool
+
+    @classmethod
+    def from_domain(cls, farm: FarmSummary) -> "FarmSummarySchema":
+        return cls(
+            farm_id=farm.farm_id,
+            expected_t=farm.expected_t,
+            actual_t=farm.actual_t,
+            local_t=farm.local_t,
+            variance_t=farm.variance_t,
+            below_plan=farm.below_plan,
         )
 
 
 class ClientResultSchema(CamelModel):
     client_id: str
     name: str
-    mode: str
-    requested_segment: str
+    mode: ClientModeValue
+    requested_segment: SegmentValue
     price_eur: int
     demand_t: int
     allocated_t: int
     remaining_t: int
-    status: str
-    reason: str | None
+    status: ClientStatusValue
+    reason: ShortageReasonValue | None
     revenue_eur: int
 
     @classmethod
@@ -177,7 +242,7 @@ class ClientResultSchema(CamelModel):
 
 class AllocationSchema(CamelModel):
     farm_id: str
-    segment: str
+    segment: SegmentValue
     client_id: str
     tonnes: int
     quality_upgrade: int
@@ -199,7 +264,7 @@ class AllocationSchema(CamelModel):
 
 class LocalResidualRowSchema(CamelModel):
     farm_id: str
-    segment: str
+    segment: SegmentValue
     tonnes_t: int
     reference_price_eur: int
     local_price_eur: float
@@ -218,10 +283,12 @@ class LocalResidualRowSchema(CamelModel):
 
 
 class PlanResultSchema(CamelModel):
-    data_health: str = "healthy"
+    data_health: Literal["healthy"] = "healthy"
     kpis: KpisSchema
+    client_status_summary: ClientStatusSummarySchema
     narrative: NarrativeSchema
     segment_variances: list[SegmentVarianceSchema]
+    farm_summaries: list[FarmSummarySchema]
     farm_segment_balances: list[FarmSegmentBalanceSchema]
     client_results: list[ClientResultSchema]
     allocations: list[AllocationSchema]
@@ -231,8 +298,12 @@ class PlanResultSchema(CamelModel):
     def from_domain(cls, plan: PlanResult) -> "PlanResultSchema":
         return cls(
             kpis=KpisSchema.from_domain(plan.kpis),
+            client_status_summary=ClientStatusSummarySchema.from_domain(
+                plan.client_status_summary
+            ),
             narrative=NarrativeSchema.from_domain(plan.narrative),
             segment_variances=[SegmentVarianceSchema.from_domain(v) for v in plan.segment_variances],
+            farm_summaries=[FarmSummarySchema.from_domain(f) for f in plan.farm_summaries],
             farm_segment_balances=[FarmSegmentBalanceSchema.from_domain(b) for b in plan.farm_segment_balances],
             client_results=[ClientResultSchema.from_domain(c) for c in plan.client_results],
             allocations=[AllocationSchema.from_domain(a) for a in plan.allocations],
@@ -243,6 +314,12 @@ class PlanResultSchema(CamelModel):
 # ----------------------------------------------------------------------
 # Assistant schemas
 # ----------------------------------------------------------------------
+
+
+FreeText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=1000),
+]
 
 
 class AssistantRequest(CamelModel):
@@ -258,7 +335,7 @@ class AssistantRequest(CamelModel):
     """
 
     question: Literal["at_risk_clients", "farm_gaps", "local_residual"] | None = None
-    free_text: str | None = None
+    free_text: FreeText | None = None
 
     @model_validator(mode="after")
     def _exactly_one_field(self) -> "AssistantRequest":
@@ -270,14 +347,14 @@ class AssistantRequest(CamelModel):
 
 
 class AssistantAvailableResponse(CamelModel):
-    available: bool = True
+    available: Literal[True] = True
     answer: str
     cited_ids: list[str]
-    source: str
+    source: Literal["llm", "fallback"]
 
 
 class AssistantUnavailableResponse(CamelModel):
-    available: bool = False
+    available: Literal[False] = False
     reason: str
-    source: str = "fallback"
+    source: Literal["fallback"] = "fallback"
     fallback_answer: str | None = None

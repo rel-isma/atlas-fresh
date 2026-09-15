@@ -1,5 +1,5 @@
 import { PackageOpen } from "lucide-react";
-import { DataTable } from "../components/DataTable";
+import { DataTable, TableEmpty } from "../components/DataTable";
 import { KpiCard } from "../components/KpiCard";
 import { eur, tonnes } from "../lib";
 import { usePlan } from "../state/PlanContext";
@@ -35,7 +35,7 @@ export function LocalResidual() {
         <div className="rounded-lg border border-atlas-sage bg-atlas-sage/15 px-4 py-3 text-sm">
           <strong>Estimated insight</strong>
           <span className="ml-2">
-            Local value uses each residual row’s local market price.
+            Local value uses each residual row's local market price.
           </span>
         </div>
       )}
@@ -54,26 +54,30 @@ export function LocalResidual() {
             { label: "Local value", align: "right" },
           ]}
         >
-          {localResidual.map((row) => (
-            <tr key={`${row.farmId}-${row.segment}`}>
-              <td className="font-bold">{row.farmId}</td>
-              <td>
-                <span className="grid size-6 place-items-center rounded-md border border-atlas-line bg-atlas-sage/15 text-xs font-bold">
-                  {row.segment}
-                </span>
-              </td>
-              <td className="text-right tabular-nums">{tonnes(row.tonnesT)}</td>
-              <td className="text-right tabular-nums">
-                {eur(row.referencePriceEur)}
-              </td>
-              <td className="text-right tabular-nums">
-                {eur(row.localPriceEur)}
-              </td>
-              <td className="text-right font-bold tabular-nums">
-                {eur(row.localValueEur)}
-              </td>
-            </tr>
-          ))}
+          {localResidual.length === 0 ? (
+            <TableEmpty colSpan={6} title="No local residual — all production was allocated to export." />
+          ) : (
+            localResidual.map((row) => (
+              <tr key={`${row.farmId}-${row.segment}`}>
+                <td className="font-bold">{row.farmId}</td>
+                <td>
+                  <span className="grid size-6 place-items-center rounded-md border border-atlas-line bg-atlas-sage/15 text-xs font-bold">
+                    {row.segment}
+                  </span>
+                </td>
+                <td className="text-right tabular-nums">{tonnes(row.tonnesT)}</td>
+                <td className="text-right tabular-nums">
+                  {eur(row.referencePriceEur)}
+                </td>
+                <td className="text-right tabular-nums">
+                  {eur(row.localPriceEur)}
+                </td>
+                <td className="text-right font-bold tabular-nums">
+                  {eur(row.localValueEur)}
+                </td>
+              </tr>
+            ))
+          )}
         </DataTable>
       </article>
     </section>
