@@ -49,29 +49,47 @@ Read-only explanation layer over the computed plan. Answers use structured conte
 
 ## Prerequisites
 
-Python 3.11+, Node 18+.
+| Tool | Version | Notes |
+|------|---------|-------|
+| Git | any recent | — |
+| Python | 3.11+ | Must include `venv` and `ensurepip` (see note below) |
+| Node.js | 18+ | Ships with npm |
+
+> **Ubuntu / Debian note** — the default `python3` package does not include `venv`.
+> If `python3 -m venv` fails with *"ensurepip is not available"*, install the
+> matching package:
+> ```bash
+> sudo apt install python3-venv   # or python3.12-venv, etc.
+> ```
 
 ## Run it (clean-start path)
 
 ```bash
 git clone https://github.com/rel-isma/atlas-fresh.git
 cd atlas-fresh
-
-# backend
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate       # Windows: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-pytest -v                       # 44 passed
-uvicorn app.main:app --reload   # http://localhost:8000
-
-# frontend (new terminal)
-cd frontend
-cp .env.example .env
-npm install && npm run dev      # http://localhost:5173
 ```
 
-No API key required for either to run fully.
+### Backend
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+pytest -v                          # 44 tests — all should pass
+uvicorn app.main:app --reload      # http://localhost:8000
+```
+
+### Frontend (open a new terminal)
+
+```bash
+cd frontend
+cp .env.example .env               # points at http://localhost:8000
+npm install
+npm run dev                        # http://localhost:5173
+```
+
+No API key required — both services run fully out of the box.
 
 ## Assumptions & limitations
 
