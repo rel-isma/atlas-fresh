@@ -83,8 +83,9 @@ Both apps are deployable to Vercel with zero backend config beyond two
 environment variables: `ALLOWED_ORIGINS` on the backend (the deployed
 frontend's URL) and `VITE_API_BASE_URL` on the frontend (the deployed
 backend's URL). No database, no Docker — Vercel's zero-config Python
-runtime detects `app/main.py` directly. Live URLs, if deployed:
-`<frontend-url>` / `<backend-url>`.
+runtime detects `app/main.py` directly.
+
+**Live demo:** https://atlas-fresh-frontend.vercel.app/
 
 ## Next three production steps
 
