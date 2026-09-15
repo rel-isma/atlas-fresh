@@ -1,11 +1,12 @@
 """FastAPI application entry point.
 
-Deliberately small: creates the app, configures CORS for the local
-Vite dev server, and mounts the two routers. No business logic lives
-here — see app/core for the deterministic engine and app/api for the
-thin route handlers.
+Deliberately small: creates the app, configures CORS, and mounts the
+two routers. No business logic lives here — see app/core for the
+deterministic engine and app/api for the thin route handlers.
 """
 from __future__ import annotations
+
+import os
 
 from dotenv import load_dotenv
 
@@ -23,9 +24,16 @@ from .api import assistant, plan
 
 app = FastAPI(title="Atlas Fresh — Daily Export Planner API")
 
+# Comma-separated list of allowed frontend origins. Defaults to the
+# local Vite dev server. In production (e.g. Vercel), set
+# ALLOWED_ORIGINS to the deployed frontend's real URL via the
+# platform's environment variable settings — never hardcode a
+# deployed URL into source.
+allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allowed_origins,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
