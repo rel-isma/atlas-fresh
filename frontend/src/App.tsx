@@ -1,13 +1,22 @@
 import { Bot, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { AssistantDrawer } from "./assistant/AssistantDrawer";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { LoadingSkeleton } from "./components/LoadingSkeleton";
 import { usePlan } from "./state/PlanContext";
-import { Commercial } from "./views/Commercial";
-import { LocalResidual } from "./views/LocalResidual";
-import { Overview } from "./views/Overview";
-import { Production } from "./views/Production";
+
+const Overview = lazy(() =>
+  import("./views/Overview").then((m) => ({ default: m.Overview })),
+);
+const Production = lazy(() =>
+  import("./views/Production").then((m) => ({ default: m.Production })),
+);
+const Commercial = lazy(() =>
+  import("./views/Commercial").then((m) => ({ default: m.Commercial })),
+);
+const LocalResidual = lazy(() =>
+  import("./views/LocalResidual").then((m) => ({ default: m.LocalResidual })),
+);
 
 type Tab = "overview" | "production" | "commercial" | "local";
 
@@ -126,12 +135,16 @@ export default function App() {
       )}
       {status === "ready" && (
         <main className="mx-auto w-[min(1464px,calc(100%-48px))] py-8">
-          {activeTab === "overview" && <Overview onNavigate={handleNavigate} />}
-          {activeTab === "production" && <Production />}
-          {activeTab === "commercial" && (
-            <Commercial defaultFilter={commercialFilter} />
-          )}
-          {activeTab === "local" && <LocalResidual />}
+          <Suspense fallback={<LoadingSkeleton />}>
+            {activeTab === "overview" && (
+              <Overview onNavigate={handleNavigate} />
+            )}
+            {activeTab === "production" && <Production />}
+            {activeTab === "commercial" && (
+              <Commercial defaultFilter={commercialFilter} />
+            )}
+            {activeTab === "local" && <LocalResidual />}
+          </Suspense>
         </main>
       )}
       <AssistantDrawer
@@ -141,3 +154,4 @@ export default function App() {
     </div>
   );
 }
+
