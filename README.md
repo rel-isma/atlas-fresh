@@ -77,6 +77,15 @@ No API key required for either to run fully.
 - Free-text assistant relevance is a keyword filter, not semantic NLP.
 - No persistence (recomputes from the seed workbook each load) and no authentication — both intentionally out of scope.
 
+## Deployment (optional)
+
+Both apps are deployable to Vercel with zero backend config beyond two
+environment variables: `ALLOWED_ORIGINS` on the backend (the deployed
+frontend's URL) and `VITE_API_BASE_URL` on the frontend (the deployed
+backend's URL). No database, no Docker — Vercel's zero-config Python
+runtime detects `app/main.py` directly. Live URLs, if deployed:
+`<frontend-url>` / `<backend-url>`.
+
 ## Next three production steps
 
 1. Persist daily planning snapshots to enable historical trend and performance comparison.
