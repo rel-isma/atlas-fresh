@@ -1,8 +1,8 @@
-import { CheckCircle2, Inbox, PackageCheck } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import type { ReactNode } from "react";
 import type { PlanData } from "../api/types";
-import { DataTable } from "../components/DataTable";
+import { DataTable, TableEmpty } from "../components/DataTable";
 import { KpiCard } from "../components/KpiCard";
 import { StatusBadge } from "../components/StatusBadge";
 import {
@@ -145,28 +145,18 @@ export function Overview({
           subtitle={`${kpis.atRiskCount} require attention`}
           onClick={() => onNavigate("commercial", "risk")}
         >
-          {risk.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
-              <span className="grid size-10 place-items-center rounded-xl bg-atlas-sage/20 text-atlas-green">
-                <PackageCheck className="size-5" aria-hidden="true" />
-              </span>
-              <div>
-                <p className="text-sm font-semibold text-atlas-deep">All clients fulfilled</p>
-                <p className="mt-1 max-w-52 text-xs leading-5 text-atlas-muted">
-                  Every client has been fully allocated in today's plan.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <DataTable
-              headers={[
-                { label: "Client" },
-                { label: "Segment" },
-                { label: "Status" },
-                { label: "Remaining", align: "right" },
-              ]}
-            >
-              {risk.slice(0, 4).map((client) => (
+          <DataTable
+            headers={[
+              { label: "Client" },
+              { label: "Segment" },
+              { label: "Status" },
+              { label: "Remaining", align: "right" },
+            ]}
+          >
+            {risk.length === 0 ? (
+              <TableEmpty colSpan={4} title="No at-risk clients" />
+            ) : (
+              risk.slice(0, 4).map((client) => (
                 <tr key={client.clientId}>
                   <td>
                     <strong>{client.name}</strong>
@@ -186,9 +176,9 @@ export function Overview({
                     {tonnes(client.remainingT)}
                   </td>
                 </tr>
-              ))}
-            </DataTable>
-          )}
+              ))
+            )}
+          </DataTable>
         </Preview>
 
         <Preview
@@ -196,29 +186,19 @@ export function Overview({
           subtitle={`${localResidual.length} farm records`}
           onClick={() => onNavigate("local")}
         >
-          {localResidual.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
-              <span className="grid size-10 place-items-center rounded-xl bg-atlas-sage/20 text-atlas-primary">
-                <Inbox className="size-5" aria-hidden="true" />
-              </span>
-              <div>
-                <p className="text-sm font-semibold text-atlas-deep">No local residual</p>
-                <p className="mt-1 max-w-56 text-xs leading-5 text-atlas-muted">
-                  All production was allocated to export clients.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <DataTable
-              headers={[
-                { label: "Farm" },
-                { label: "Segment" },
-                { label: "Tonnes", align: "right" },
-                { label: "Reference", align: "right" },
-                { label: "Local value", align: "right" },
-              ]}
-            >
-              {localResidual.slice(0, 4).map((item) => (
+          <DataTable
+            headers={[
+              { label: "Farm" },
+              { label: "Segment" },
+              { label: "Tonnes", align: "right" },
+              { label: "Reference", align: "right" },
+              { label: "Local value", align: "right" },
+            ]}
+          >
+            {localResidual.length === 0 ? (
+              <TableEmpty colSpan={5} title="No residual today" />
+            ) : (
+              localResidual.slice(0, 4).map((item) => (
                 <tr key={`${item.farmId}-${item.segment}`}>
                   <td className="font-bold">{item.farmId}</td>
                   <td>
@@ -236,9 +216,9 @@ export function Overview({
                     {eur(item.localValueEur)}
                   </td>
                 </tr>
-              ))}
-            </DataTable>
-          )}
+              ))
+            )}
+          </DataTable>
         </Preview>
       </div>
     </section>

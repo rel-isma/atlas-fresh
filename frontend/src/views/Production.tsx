@@ -206,6 +206,11 @@ export function Production() {
                           {farm.balances.length} segment records
                         </span>
                       </div>
+                      <span
+                        className={`ml-auto whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${farm.belowPlan ? "bg-red-50 text-red-700" : "bg-emerald-50 text-atlas-green"}`}
+                      >
+                        {farm.belowPlan ? "Below plan" : "On plan"}
+                      </span>
                     </div>
                   </td>
                   <td className="text-right tabular-nums">
