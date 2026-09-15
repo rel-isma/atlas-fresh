@@ -62,7 +62,7 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate       # Windows: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-pytest -v                       # 28 passed
+pytest -v                       # 44 passed
 uvicorn app.main:app --reload   # http://localhost:8000
 
 # frontend (new terminal)
@@ -93,7 +93,7 @@ runtime detects `app/main.py` directly.
 ## Next three production steps
 
 1. Persist daily planning snapshots to enable historical trend and performance comparison.
-2. Enable a real LLM provider behind a feature flag, with fallback to the deterministic assistant.
+2. Harden and monitor the real LLM provider behind a feature flag, with deterministic fallback.
 3. Add role-aware views so Production and Commercial users see the most relevant default screens.
 
 ## AI tools used
