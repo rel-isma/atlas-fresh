@@ -238,7 +238,7 @@ export function Overview({
                 </tr>
               ))}
             </DataTable>
-          )
+          )}
         </Preview>
       </div>
     </section>
