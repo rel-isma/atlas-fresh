@@ -32,10 +32,20 @@ export function AssistantDrawer({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const historyEnd = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     historyEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [open, messages, busy]);
+
+  useEffect(() => {
+    if (open && !busy) {
+      const timer = setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [open, busy]);
 
   async function submit(body: AssistantRequest, displayText: string) {
     if (busy) return;
@@ -191,6 +201,7 @@ export function AssistantDrawer({
           </label>
           <textarea
             id="assistant-question"
+            ref={inputRef}
             className="min-h-16 w-full resize-none bg-transparent px-1 text-sm leading-6 outline-none placeholder:text-atlas-muted"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
